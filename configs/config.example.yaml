@@ -5,3 +5,6 @@ server:
 
 storage:
   sqlite_path: data/agentguard.db
+
+provider:
+  type: mock

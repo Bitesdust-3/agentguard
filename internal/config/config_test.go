@@ -11,7 +11,7 @@ func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := "server:\n  host: 127.0.0.1\n  port: 9090\nstorage:\n  sqlite_path: test.db\n"
+	contents := "server:\n  host: 127.0.0.1\n  port: 9090\nstorage:\n  sqlite_path: test.db\nprovider:\n  type: mock\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write configuration: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := "server:\n  host: ''\n  port: 70000\nstorage:\n  sqlite_path: ''\n"
+	contents := "server:\n  host: ''\n  port: 70000\nstorage:\n  sqlite_path: ''\nprovider:\n  type: mock\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write configuration: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := "server:\n  host: 127.0.0.1\n  port: 8080\n  unknown: true\nstorage:\n  sqlite_path: test.db\n"
+	contents := "server:\n  host: 127.0.0.1\n  port: 8080\n  unknown: true\nstorage:\n  sqlite_path: test.db\nprovider:\n  type: mock\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write configuration: %v", err)
 	}
@@ -58,5 +58,20 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load() returned nil error for unknown field")
+	}
+}
+
+func TestLoadRejectsUnknownProvider(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "provider:\n  type: unknown\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write configuration: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "provider.type") {
+		t.Fatalf("Load() error = %v, want provider.type error", err)
 	}
 }

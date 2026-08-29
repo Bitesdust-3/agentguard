@@ -15,8 +15,9 @@ import (
 
 // Config contains only the settings implemented in the current stage.
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Storage StorageConfig `yaml:"storage"`
+	Server   ServerConfig   `yaml:"server"`
+	Storage  StorageConfig  `yaml:"storage"`
+	Provider ProviderConfig `yaml:"provider"`
 }
 
 type ServerConfig struct {
@@ -26,6 +27,10 @@ type ServerConfig struct {
 
 type StorageConfig struct {
 	SQLitePath string `yaml:"sqlite_path"`
+}
+
+type ProviderConfig struct {
+	Type string `yaml:"type"`
 }
 
 // Default returns a safe local-development configuration.
@@ -38,6 +43,7 @@ func Default() Config {
 		Storage: StorageConfig{
 			SQLitePath: "data/agentguard.db",
 		},
+		Provider: ProviderConfig{Type: "mock"},
 	}
 }
 
@@ -75,6 +81,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Storage.SQLitePath) == "" {
 		return fmt.Errorf("storage.sqlite_path must not be empty")
+	}
+	if c.Provider.Type != "mock" {
+		return fmt.Errorf("provider.type must be mock")
 	}
 	return nil
 }

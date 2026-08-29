@@ -24,6 +24,8 @@ No AgentGuard security business capability has been implemented yet.
 - YAML-backed local configuration with safe defaults.
 - SQLite connection bootstrap with foreign-key enforcement and versioned schema metadata.
 - `GET /health` JSON endpoint.
+- OpenAI-style, non-streaming `POST /v1/chat/completions` endpoint.
+- Deterministic local Mock Provider for gateway integration; it is not a real LLM.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
@@ -74,13 +76,21 @@ go run ./cmd/agentguard
 
 Then request `http://127.0.0.1:8080/health`.
 
+To exercise the local Mock Provider:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello AgentGuard"}]}'
+```
+
 To run the test suite:
 
 ```bash
 go test ./...
 ```
 
-The security gateway, detectors, policy engine, tools, audit features, dashboard, benchmark, and LLM providers are still planned work.
+Security detection, policy decisions, tools, audit features, dashboard, benchmark, and real LLM providers are still planned work.
 
 ## Roadmap
 

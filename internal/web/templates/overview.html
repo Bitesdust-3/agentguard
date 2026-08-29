@@ -1,0 +1,22 @@
+{{define "content"}}{{template "overview_content" .}}{{end}}
+{{define "overview_content"}}
+<section id="overview-content" hx-get="/dashboard/partials/overview" hx-trigger="every 30s" hx-swap="outerHTML">
+  <div class="metric-grid">
+    <article class="metric"><span>Total Chat Requests</span><strong>{{.Overview.Metrics.TotalChats}}</strong></article>
+    <article class="metric pass"><span>PASS</span><strong>{{.Overview.Metrics.Pass}}</strong></article>
+    <article class="metric redact"><span>REDACT</span><strong>{{.Overview.Metrics.Redact}}</strong></article>
+    <article class="metric block"><span>BLOCK</span><strong>{{.Overview.Metrics.Block}}</strong></article>
+    <article class="metric approval"><span>APPROVAL</span><strong>{{.Overview.Metrics.Approval}}</strong></article>
+    <article class="metric"><span>Detections</span><strong>{{.Overview.Metrics.Detections}}</strong></article>
+    <article class="metric"><span>Prompt Injection</span><strong>{{.Overview.Metrics.PromptInjection}}</strong></article>
+    <article class="metric"><span>Secret / PII</span><strong>{{.Overview.Metrics.Secret}} / {{.Overview.Metrics.PII}}</strong></article>
+    <article class="metric"><span>Tool Calls</span><strong>{{.Overview.Metrics.ToolCalls}}</strong></article>
+    <article class="metric approval"><span>Pending Approval</span><strong>{{.Overview.Metrics.PendingApprovals}}</strong></article>
+  </div>
+  <section class="panel"><div class="panel-heading"><h2>Recent Security Events</h2><a href="/dashboard/events">View all</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Detection</th><th>Decision</th><th>Linked record</th></tr></thead><tbody>
+      {{range .Overview.Recent}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.EventType}}</td><td>{{if .DetectionType}}<span class="tag {{detectionClass .DetectionType}}">{{.DetectionType}}</span>{{else}}—{{end}}</td><td>{{if .Decision}}<span class="tag {{decisionClass .Decision}}">{{.Decision}}</span>{{else}}—{{end}}</td><td>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}—{{end}}</td></tr>{{else}}<tr><td colspan="5" class="empty">No audit events yet.</td></tr>{{end}}
+    </tbody></table></div>
+  </section>
+</section>
+{{end}}

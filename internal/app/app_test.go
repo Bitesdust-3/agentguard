@@ -60,3 +60,18 @@ func TestAuditRouteUsesAuditHandler(t *testing.T) {
 		t.Fatalf("status = %d, want %d", got, want)
 	}
 }
+
+func TestDashboardRouteUsesDashboardHandler(t *testing.T) {
+	t.Parallel()
+
+	dashboard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/events", nil)
+	response := httptest.NewRecorder()
+	NewHandler("test", nil, nil, nil, dashboard).ServeHTTP(response, request)
+
+	if got, want := response.Code, http.StatusNoContent; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+}

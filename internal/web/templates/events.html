@@ -1,0 +1,14 @@
+{{define "content"}}
+<section class="panel filter-panel"><form hx-get="/dashboard/partials/events" hx-target="#events-table" hx-swap="outerHTML">
+  <label>Event type<input name="event_type" value="{{.Events.Filters.EventType}}" placeholder="e.g. INPUT_POLICY"></label>
+  <label>Decision<select name="decision"><option value="">All</option><option value="PASS" {{if eq .Events.Filters.Decision "PASS"}}selected{{end}}>PASS</option><option value="REDACT" {{if eq .Events.Filters.Decision "REDACT"}}selected{{end}}>REDACT</option><option value="BLOCK" {{if eq .Events.Filters.Decision "BLOCK"}}selected{{end}}>BLOCK</option><option value="APPROVAL" {{if eq .Events.Filters.Decision "APPROVAL"}}selected{{end}}>APPROVAL</option></select></label>
+  <label>Detection type<select name="detection_type"><option value="">All</option><option value="PII" {{if eq $.Events.Filters.DetectionType "PII"}}selected{{end}}>PII</option><option value="SECRET" {{if eq $.Events.Filters.DetectionType "SECRET"}}selected{{end}}>SECRET</option><option value="PROMPT_INJECTION" {{if eq $.Events.Filters.DetectionType "PROMPT_INJECTION"}}selected{{end}}>PROMPT_INJECTION</option></select></label>
+  <button type="submit">Filter</button><a class="button secondary" href="/dashboard/events">Clear</a>
+</form></section>
+{{template "events_table" .}}
+{{end}}
+{{define "events_table"}}
+<section id="events-table" class="panel"><div class="panel-heading"><h2>Security Events</h2><span>{{len .Events.Items}} results</span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Detection / Rule</th><th>Decision</th><th>Risk</th><th>Record</th><th>Safe summary</th></tr></thead><tbody>
+{{range .Events.Items}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.EventType}}</td><td>{{if .DetectionType}}<span class="tag {{detectionClass .DetectionType}}">{{.DetectionType}}</span><br><small>{{.RuleID}}</small>{{else}}—{{end}}</td><td>{{if .Decision}}<span class="tag {{decisionClass .Decision}}">{{.Decision}}</span>{{else}}—{{end}}</td><td>{{formatScore .RiskScore}}</td><td>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}—{{end}}</td><td>{{.Summary}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No events match the current filters.</td></tr>{{end}}
+</tbody></table></div></section>
+{{end}}

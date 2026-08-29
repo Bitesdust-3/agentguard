@@ -18,6 +18,7 @@ import (
 	"github.com/bitesdust/agentguard/internal/provider"
 	"github.com/bitesdust/agentguard/internal/storage"
 	"github.com/bitesdust/agentguard/internal/tools"
+	"github.com/bitesdust/agentguard/internal/web"
 )
 
 const (
@@ -56,11 +57,16 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 	}
 	auditStore := audit.New(store.DB())
 	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools, auditStore))
+	dashboard, err := web.New(store.DB(), version)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("initialize dashboard: %w", err)
+	}
 
 	return &Application{
 		Server: &http.Server{
 			Addr:              cfg.ListenAddr(),
-			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy, auditStore), toolHandler, auditStore),
+			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy, auditStore), toolHandler, auditStore, dashboard),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       60 * time.Second,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -140,7 +146,7 @@ func (a *Application) Shutdown(ctx context.Context) error {
 }
 
 // NewHandler mounts the public gateway, local management APIs, and health endpoint.
-func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handler, auditHandler http.Handler) http.Handler {
+func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handler, auditHandler http.Handler, dashboardHandler ...http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if chatHandler != nil {
 		mux.Handle("/v1/chat/completions", chatHandler)
@@ -150,6 +156,10 @@ func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handl
 	}
 	if auditHandler != nil {
 		mux.Handle("/api/audit/events", auditHandler)
+	}
+	if len(dashboardHandler) > 0 && dashboardHandler[0] != nil {
+		mux.Handle("/dashboard", dashboardHandler[0])
+		mux.Handle("/dashboard/", dashboardHandler[0])
 	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

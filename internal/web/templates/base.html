@@ -1,0 +1,38 @@
+{{define "base"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · AgentGuard</title>
+  <link rel="stylesheet" href="/dashboard/static/dashboard.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/dashboard"><span>AG</span> AgentGuard</a>
+      <nav aria-label="Dashboard navigation">
+        <a class="{{if eq .Active "overview"}}active{{end}}" href="/dashboard">Overview</a>
+        <a class="{{if eq .Active "events"}}active{{end}}" href="/dashboard/events">Security Events</a>
+        <a class="{{if eq .Active "tools"}}active{{end}}" href="/dashboard/tools">Tools &amp; Approval</a>
+      </nav>
+      <div class="service-status"><span class="online"></span> Service Online<br><small>version {{.Version}}</small></div>
+    </aside>
+    <main class="content">
+      <header><div><p class="eyebrow">LOCAL SECURITY CONSOLE</p><h1>{{.Title}}</h1></div><a class="health" href="/health">Health API</a></header>
+      <div id="dashboard-notice" class="notice" role="status" aria-live="polite"></div>
+      {{template "content" .}}
+    </main>
+  </div>
+  <script>
+    function dashboardApprovalResult(event) {
+      const notice = document.getElementById('dashboard-notice');
+      if (event.detail.successful) { notice.textContent = 'Approval updated. Refreshing the current view.'; window.setTimeout(() => window.location.reload(), 250); return; }
+      const status = event.detail.xhr ? event.detail.xhr.status : 0;
+      notice.textContent = status === 409 ? 'Approval was already decided. Refresh to view the current state.' : 'Approval could not be completed. The server state was not changed.';
+    }
+  </script>
+</body>
+</html>
+{{end}}

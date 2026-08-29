@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/bitesdust/agentguard/internal/config"
+	"github.com/bitesdust/agentguard/internal/provider"
 )
 
 func TestHealth(t *testing.T) {
@@ -28,6 +32,28 @@ func TestHealth(t *testing.T) {
 	}
 	if body.Service != "agentguard" || body.Status != "ok" || body.Version != "test" {
 		t.Fatalf("unexpected health body: %+v", body)
+	}
+}
+
+func TestProviderComposition(t *testing.T) {
+	mock, err := newProvider(config.Default().Provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mock.(provider.Mock); !ok {
+		t.Fatalf("mock provider type = %T", mock)
+	}
+
+	cfg := config.ProviderConfig{Type: "openai_compatible", BaseURL: "https://example.invalid", Model: "fixture-model", TimeoutMS: 1000, APIKeyEnv: "AGENTGUARD_PROVIDER_API_KEY"}
+	t.Setenv(cfg.APIKeyEnv, "")
+	if _, err := newProvider(cfg); err == nil || !strings.Contains(err.Error(), cfg.APIKeyEnv) {
+		t.Fatalf("missing-key error = %v", err)
+	}
+	t.Setenv(cfg.APIKeyEnv, "fixture-key")
+	if realProvider, err := newProvider(cfg); err != nil {
+		t.Fatal(err)
+	} else if _, ok := realProvider.(*provider.OpenAICompatible); !ok {
+		t.Fatalf("real provider type = %T", realProvider)
 	}
 }
 

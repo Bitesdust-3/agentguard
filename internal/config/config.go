@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -33,7 +34,11 @@ type StorageConfig struct {
 }
 
 type ProviderConfig struct {
-	Type string `yaml:"type"`
+	Type      string `yaml:"type"`
+	BaseURL   string `yaml:"base_url"`
+	Model     string `yaml:"model"`
+	TimeoutMS int    `yaml:"timeout_ms"`
+	APIKeyEnv string `yaml:"api_key_env"`
 }
 
 type DetectionConfig struct {
@@ -97,7 +102,7 @@ func Default() Config {
 		Storage: StorageConfig{
 			SQLitePath: "data/agentguard.db",
 		},
-		Provider: ProviderConfig{Type: "mock"},
+		Provider: ProviderConfig{Type: "mock", Model: "mock-model", TimeoutMS: 30000, APIKeyEnv: "AGENTGUARD_PROVIDER_API_KEY"},
 		Detection: DetectionConfig{
 			PII:             DetectorConfig{Enabled: true, Threshold: 0.80},
 			Secret:          DetectorConfig{Enabled: true, Threshold: 0.80},
@@ -164,8 +169,22 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Storage.SQLitePath) == "" {
 		return fmt.Errorf("storage.sqlite_path must not be empty")
 	}
-	if c.Provider.Type != "mock" {
-		return fmt.Errorf("provider.type must be mock")
+	if c.Provider.Type != "mock" && c.Provider.Type != "openai_compatible" {
+		return fmt.Errorf("provider.type must be mock or openai_compatible")
+	}
+	if c.Provider.TimeoutMS <= 0 {
+		return fmt.Errorf("provider.timeout_ms must be greater than zero")
+	}
+	if c.Provider.Type == "openai_compatible" {
+		if err := validateProviderURL(c.Provider.BaseURL); err != nil {
+			return err
+		}
+		if strings.TrimSpace(c.Provider.Model) == "" {
+			return fmt.Errorf("provider.model must not be empty")
+		}
+		if strings.TrimSpace(c.Provider.APIKeyEnv) == "" {
+			return fmt.Errorf("provider.api_key_env must not be empty")
+		}
 	}
 	if err := validateDetectorConfig("detection.pii", c.Detection.PII); err != nil {
 		return err
@@ -183,6 +202,17 @@ func (c Config) Validate() error {
 		return err
 	}
 	return validateToolsConfig(c.Tools)
+}
+
+func validateProviderURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("provider.base_url must be a valid http or https URL")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("provider.base_url must not contain credentials, query, or fragment")
+	}
+	return nil
 }
 
 func boolPtr(value bool) *bool { return &value }

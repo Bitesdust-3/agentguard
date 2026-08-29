@@ -117,6 +117,36 @@ func TestChatCompletionsPropagatesProviderFailure(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsMapsTypedProviderFailuresSafely(t *testing.T) {
+	tests := []struct {
+		code       provider.ErrorCode
+		wantStatus int
+		wantCode   string
+	}{
+		{code: provider.ErrorTimeout, wantStatus: http.StatusGatewayTimeout, wantCode: "provider_timeout"},
+		{code: provider.ErrorRateLimited, wantStatus: http.StatusServiceUnavailable, wantCode: "provider_rate_limited"},
+		{code: provider.ErrorUnauthorized, wantStatus: http.StatusBadGateway, wantCode: "provider_auth_error"},
+		{code: provider.ErrorForbidden, wantStatus: http.StatusBadGateway, wantCode: "provider_auth_error"},
+		{code: provider.ErrorInvalidResponse, wantStatus: http.StatusBadGateway, wantCode: "provider_invalid_response"},
+		{code: provider.ErrorUpstream, wantStatus: http.StatusBadGateway, wantCode: "provider_error"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.code), func(t *testing.T) {
+			response := performChat(newTestHandler(typedFailingProvider{code: test.code}), `{"model":"mock","messages":[{"role":"user","content":"normal question"}]}`)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
+			}
+			var body errorResponseDTO
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Code != test.wantCode || strings.Contains(response.Body.String(), "fixture-provider-key") {
+				t.Fatalf("unsafe error body: %s", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestChatCompletionsRedactsBeforeProvider(t *testing.T) {
 	t.Parallel()
 
@@ -331,4 +361,10 @@ type failingProvider struct{}
 
 func (failingProvider) Chat(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 	return provider.ChatResponse{}, errors.New("provider unavailable")
+}
+
+type typedFailingProvider struct{ code provider.ErrorCode }
+
+func (p typedFailingProvider) Chat(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, &provider.Error{Code: p.code}
 }

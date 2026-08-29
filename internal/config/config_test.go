@@ -76,6 +76,45 @@ func TestLoadRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleProviderConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "provider:\n  type: openai_compatible\n  base_url: https://api.example.invalid\n  model: fixture-model\n  timeout_ms: 15000\n  api_key_env: AGENTGUARD_PROVIDER_API_KEY\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider.Model != "fixture-model" || cfg.Provider.TimeoutMS != 15000 || cfg.Provider.APIKeyEnv != "AGENTGUARD_PROVIDER_API_KEY" {
+		t.Fatalf("provider config = %+v", cfg.Provider)
+	}
+}
+
+func TestOpenAICompatibleProviderRejectsUnsafeConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name, fields string
+	}{
+		{name: "empty URL", fields: "base_url: ''\n  model: fixture\n  timeout_ms: 1\n  api_key_env: KEY"},
+		{name: "file URL", fields: "base_url: file:///tmp/model\n  model: fixture\n  timeout_ms: 1\n  api_key_env: KEY"},
+		{name: "URL credentials", fields: "base_url: https://user:pass@example.invalid\n  model: fixture\n  timeout_ms: 1\n  api_key_env: KEY"},
+		{name: "empty model", fields: "base_url: https://example.invalid\n  model: ''\n  timeout_ms: 1\n  api_key_env: KEY"},
+		{name: "invalid timeout", fields: "base_url: https://example.invalid\n  model: fixture\n  timeout_ms: 0\n  api_key_env: KEY"},
+		{name: "empty key environment", fields: "base_url: https://example.invalid\n  model: fixture\n  timeout_ms: 1\n  api_key_env: ''"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			contents := "provider:\n  type: openai_compatible\n  " + test.fields + "\n"
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("invalid provider configuration accepted")
+			}
+		})
+	}
+}
+
 func TestLoadRejectsInvalidInputPolicy(t *testing.T) {
 	t.Parallel()
 

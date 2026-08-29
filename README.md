@@ -24,6 +24,7 @@ Build a focused, explainable, and testable security project suitable for public 
 - `GET /health` JSON endpoint.
 - OpenAI-style, non-streaming `POST /v1/chat/completions` endpoint.
 - Deterministic local Mock Provider for gateway integration; it is not a real LLM.
+- Minimal OpenAI-Compatible Provider using the standard library HTTP client and a configured single upstream model.
 - Rule-based input Secret detection for a small set of credential-like formats.
 - Rule-based input PII detection for email addresses, Chinese mainland mobile numbers, and validated Chinese identity-card numbers.
 - Configured input policy enforcement with `PASS`, `REDACT`, and `BLOCK` decisions.
@@ -48,7 +49,7 @@ The current Tool Executor is mock-only: it never reads or deletes real files, se
 
 ### Planned for v1.0
 
-- One real OpenAI-compatible provider.
+- Final packaging and release validation.
 
 ## Planned Technology Stack
 
@@ -100,7 +101,29 @@ To run the test suite:
 go test ./...
 ```
 
-Open the local dashboard at `http://127.0.0.1:8080/dashboard`; the persisted Benchmark view is at `/dashboard/benchmark`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. A real LLM provider is still planned work.
+Open the local dashboard at `http://127.0.0.1:8080/dashboard`; the persisted Benchmark view is at `/dashboard/benchmark`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Mock mode remains the recommended key-free demo path.
+
+### OpenAI-Compatible Provider
+
+Mock mode remains the default and requires no network or API key. To use one real OpenAI-compatible upstream, set `provider.type` to `openai_compatible` and configure a service base URL, one fixed upstream model, a positive total timeout in milliseconds, and the API-key environment-variable name:
+
+```yaml
+provider:
+  type: openai_compatible
+  base_url: https://api.example.invalid
+  model: your-model-name
+  timeout_ms: 30000
+  api_key_env: AGENTGUARD_PROVIDER_API_KEY
+```
+
+Then provide the key only through the environment, never YAML:
+
+```bash
+export AGENTGUARD_PROVIDER_API_KEY=your-api-key
+go run ./cmd/agentguard -config configs/config.example.yaml
+```
+
+The configured model is always used upstream; the client-facing `model` field cannot select another deployment. The provider appends `/v1/chat/completions` to `base_url` and supports only non-streaming text Chat Completions with `system`, `user`, and `assistant` messages. Streaming, model routing, automatic fallback/retry, forwarded Tool/Function Calling, and multimodal requests are not supported. Provider errors are converted to safe AgentGuard errors without returning upstream bodies, credentials, account details, or provider request identifiers.
 
 Run the development Benchmark dataset with:
 
@@ -123,7 +146,7 @@ These results expose real limitations instead of tuning them away: paraphrased d
 ## Roadmap
 
 - **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** One real OpenAI-compatible provider.
+- **Planned:** Final packaging and release validation.
 - **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated. For future Tools with real external side effects, a final Audit persistence failure after the external action cannot be rolled back by a local SQLite transaction; production designs may consider idempotent external operations, Outbox, or Workflow patterns.
 
 ## License

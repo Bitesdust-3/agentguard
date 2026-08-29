@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/audit"
@@ -34,14 +36,13 @@ type Application struct {
 
 // New initializes the infrastructure required to serve AgentGuard.
 func New(ctx context.Context, cfg config.Config, version string, logger *slog.Logger) (*Application, error) {
+	chatProvider, err := newProvider(cfg.Provider)
+	if err != nil {
+		return nil, err
+	}
 	store, err := storage.Open(ctx, cfg.Storage.SQLitePath)
 	if err != nil {
 		return nil, fmt.Errorf("initialize storage: %w", err)
-	}
-	chatProvider, err := newProvider(cfg.Provider)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
 	}
 	inputDetector := newInputDetector(cfg.Detection)
 	inputPolicy, err := newPolicy(cfg.Policy.Input, policy.StageInput)
@@ -124,6 +125,16 @@ func newProvider(cfg config.ProviderConfig) (provider.Provider, error) {
 	switch cfg.Type {
 	case "mock":
 		return provider.NewMock(), nil
+	case "openai_compatible":
+		apiKey := strings.TrimSpace(os.Getenv(cfg.APIKeyEnv))
+		if apiKey == "" {
+			return nil, fmt.Errorf("provider API key environment variable %q is not set", cfg.APIKeyEnv)
+		}
+		result, err := provider.NewOpenAICompatible(cfg.BaseURL, cfg.Model, apiKey, time.Duration(cfg.TimeoutMS)*time.Millisecond)
+		if err != nil {
+			return nil, fmt.Errorf("initialize openai-compatible provider: %w", err)
+		}
+		return result, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}

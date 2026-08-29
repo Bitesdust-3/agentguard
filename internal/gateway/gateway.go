@@ -142,7 +142,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeAuditFailure(w)
 			return
 		}
-		writeError(w, http.StatusBadGateway, "provider_error", "chat provider failed")
+		status, code, message := providerErrorResponse(err)
+		writeError(w, status, code, message)
 		return
 	}
 	if err := h.audit.Event(r.Context(), audit.Event{
@@ -200,6 +201,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			TotalTokens:      response.Usage.TotalTokens,
 		},
 	})
+}
+
+func providerErrorResponse(err error) (int, string, string) {
+	var providerError *provider.Error
+	if !errors.As(err, &providerError) {
+		return http.StatusBadGateway, "provider_error", "chat provider failed"
+	}
+	switch providerError.Code {
+	case provider.ErrorTimeout:
+		return http.StatusGatewayTimeout, "provider_timeout", "chat provider timed out"
+	case provider.ErrorRateLimited:
+		return http.StatusServiceUnavailable, "provider_rate_limited", "chat provider is rate limited"
+	case provider.ErrorUnauthorized, provider.ErrorForbidden:
+		return http.StatusBadGateway, "provider_auth_error", "chat provider authentication failed"
+	case provider.ErrorInvalidResponse:
+		return http.StatusBadGateway, "provider_invalid_response", "chat provider returned an invalid response"
+	default:
+		return http.StatusBadGateway, "provider_error", "chat provider failed"
+	}
 }
 
 func (h *Handler) secureMessages(ctx context.Context, requestID string, messages []provider.ChatMessage) ([]provider.ChatMessage, policy.Decision, []detection.DetectionResult) {

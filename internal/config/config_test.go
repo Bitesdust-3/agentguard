@@ -99,6 +99,11 @@ func TestLoadRejectsInvalidInputPolicy(t *testing.T) {
 			contents: "detection:\n  pii:\n    threshold: -0.1\n",
 			want:     "detection.pii.threshold",
 		},
+		{
+			name:     "invalid output action",
+			contents: "policy:\n  output:\n    default_action: APPROVAL\n",
+			want:     "policy.output.default_action",
+		},
 	}
 
 	for _, test := range tests {

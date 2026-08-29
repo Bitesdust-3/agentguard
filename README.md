@@ -28,12 +28,13 @@ Build a focused, explainable, and testable security project suitable for public 
 - Rule-based input PII detection for email addresses, Chinese mainland mobile numbers, and validated Chinese identity-card numbers.
 - Configured input policy enforcement with `PASS`, `REDACT`, and `BLOCK` decisions.
 - Privacy-minimized redaction before the provider is called; raw sensitive values are not retained in detection evidence.
+- Rule-based, feature-scored direct and basic indirect Prompt Injection detection. It is a deterministic MVP, not a claim of complete protection.
+- Input and output safety pipeline: `PASS`, `REDACT`, or `BLOCK` is applied before a provider request and before a provider response reaches the client.
+- Output Secret/PII guard with response redaction or safe blocking.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- Prompt injection detection.
-- Output detection and output security policy enforcement.
 - Agent tool policy engine.
 - Audit log and lightweight dashboard.
 - Security benchmark.

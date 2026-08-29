@@ -41,7 +41,13 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 		return nil, err
 	}
 	inputDetector := newInputDetector(cfg.Detection)
-	inputPolicy, err := newInputPolicy(cfg.Policy.Input)
+	inputPolicy, err := newPolicy(cfg.Policy.Input, policy.StageInput)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	outputDetector := newOutputDetector(cfg.Detection)
+	outputPolicy, err := newPolicy(cfg.Policy.Output, policy.StageOutput)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
@@ -50,7 +56,7 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 	return &Application{
 		Server: &http.Server{
 			Addr:              cfg.ListenAddr(),
-			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy)),
+			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy)),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       60 * time.Second,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -60,6 +66,24 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 }
 
 func newInputDetector(cfg config.DetectionConfig) *detection.Engine {
+	detectors := make([]detection.Detector, 0, 3)
+	thresholds := make(map[detection.DetectionType]float64, 3)
+	if cfg.PII.Enabled {
+		detectors = append(detectors, detection.NewPIIDetector())
+		thresholds[detection.DetectionTypePII] = cfg.PII.Threshold
+	}
+	if cfg.Secret.Enabled {
+		detectors = append(detectors, detection.NewSecretDetector())
+		thresholds[detection.DetectionTypeSecret] = cfg.Secret.Threshold
+	}
+	if cfg.PromptInjection.Enabled {
+		detectors = append(detectors, detection.NewPromptInjectionDetector())
+		thresholds[detection.DetectionTypePromptInjection] = cfg.PromptInjection.Threshold
+	}
+	return detection.NewEngine(detectors, thresholds)
+}
+
+func newOutputDetector(cfg config.DetectionConfig) *detection.Engine {
 	detectors := make([]detection.Detector, 0, 2)
 	thresholds := make(map[detection.DetectionType]float64, 2)
 	if cfg.PII.Enabled {
@@ -73,7 +97,7 @@ func newInputDetector(cfg config.DetectionConfig) *detection.Engine {
 	return detection.NewEngine(detectors, thresholds)
 }
 
-func newInputPolicy(cfg config.InputPolicyConfig) (*policy.Engine, error) {
+func newPolicy(cfg config.InputPolicyConfig, stage policy.Stage) (*policy.Engine, error) {
 	rules := make([]policy.Rule, 0, len(cfg.Rules))
 	for _, rule := range cfg.Rules {
 		rules = append(rules, policy.Rule{
@@ -83,7 +107,7 @@ func newInputPolicy(cfg config.InputPolicyConfig) (*policy.Engine, error) {
 			Action:        policy.Action(rule.Action),
 		})
 	}
-	return policy.NewEngine(policy.Config{DefaultAction: policy.Action(cfg.DefaultAction), Rules: rules})
+	return policy.NewEngine(policy.Config{Stage: stage, DefaultAction: policy.Action(cfg.DefaultAction), Rules: rules})
 }
 
 func newProvider(cfg config.ProviderConfig) (provider.Provider, error) {

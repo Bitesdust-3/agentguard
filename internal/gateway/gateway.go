@@ -23,20 +23,24 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20 // 1 MiB
 
 type Handler struct {
-	provider     provider.Provider
-	detector     detection.Detector
-	inputPolicy  *policy.Engine
-	now          func() time.Time
-	newRequestID func() string
+	provider       provider.Provider
+	inputDetector  detection.Detector
+	inputPolicy    *policy.Engine
+	outputDetector detection.Detector
+	outputPolicy   *policy.Engine
+	now            func() time.Time
+	newRequestID   func() string
 }
 
-func New(chatProvider provider.Provider, detector detection.Detector, inputPolicy *policy.Engine) *Handler {
+func New(chatProvider provider.Provider, inputDetector detection.Detector, inputPolicy *policy.Engine, outputDetector detection.Detector, outputPolicy *policy.Engine) *Handler {
 	return &Handler{
-		provider:     chatProvider,
-		detector:     detector,
-		inputPolicy:  inputPolicy,
-		now:          time.Now,
-		newRequestID: newRequestID,
+		provider:       chatProvider,
+		inputDetector:  inputDetector,
+		inputPolicy:    inputPolicy,
+		outputDetector: outputDetector,
+		outputPolicy:   outputPolicy,
+		now:            time.Now,
+		newRequestID:   newRequestID,
 	}
 }
 
@@ -74,13 +78,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	securedMessages, decision := h.secureMessages(r.Context(), requestID, request.Messages)
 	request.Messages = securedMessages
 	if decision.Decision == policy.ActionBlock {
-		writeSecurityBlocked(w, decision)
+		writeSecurityBlocked(w, decision, "security_blocked", "request blocked by AgentGuard security policy")
 		return
 	}
 
 	response, err := h.provider.Chat(r.Context(), request)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "provider_error", "chat provider failed")
+		return
+	}
+	response.Message.Content, decision = h.secureOutput(r.Context(), requestID, response.Message.Content)
+	if decision.Decision == policy.ActionBlock {
+		writeSecurityBlocked(w, decision, "output_security_blocked", "provider response blocked by AgentGuard security policy")
 		return
 	}
 
@@ -107,14 +116,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) secureMessages(ctx context.Context, requestID string, messages []provider.ChatMessage) ([]provider.ChatMessage, policy.Decision) {
 	secured := append([]provider.ChatMessage(nil), messages...)
-	if h.detector == nil || h.inputPolicy == nil {
+	if h.inputDetector == nil || h.inputPolicy == nil {
 		return secured, policy.Decision{Decision: policy.ActionPass}
 	}
 
 	resultsByMessage := make([][]detection.DetectionResult, len(messages))
 	var results []detection.DetectionResult
 	for index, message := range messages {
-		messageResults := h.detector.Detect(ctx, detection.Input{
+		messageResults := h.inputDetector.Detect(ctx, detection.Input{
 			SubjectType: detection.SubjectTypeRequest,
 			SubjectID:   requestID,
 			Source:      detection.SourceInput,
@@ -135,6 +144,25 @@ func (h *Handler) secureMessages(ctx context.Context, requestID string, messages
 		secured[index].Content, decision.Redactions = appendRedactions(secured[index].Content, messageResults, decision.Redactions)
 	}
 	return secured, decision
+}
+
+func (h *Handler) secureOutput(ctx context.Context, requestID, content string) (string, policy.Decision) {
+	if h.outputDetector == nil || h.outputPolicy == nil {
+		return content, policy.Decision{Decision: policy.ActionPass}
+	}
+	results := h.outputDetector.Detect(ctx, detection.Input{
+		SubjectType: detection.SubjectTypeRequest,
+		SubjectID:   requestID,
+		Source:      detection.SourceOutput,
+		Text:        content,
+	})
+	decision := h.outputPolicy.Evaluate(detection.SubjectTypeRequest, requestID, results)
+	if decision.Decision != policy.ActionRedact {
+		return content, decision
+	}
+	redacted, redactions := detection.Redact(content, results)
+	decision.Redactions = redactions
+	return redacted, decision
 }
 
 func appendRedactions(text string, results []detection.DetectionResult, existing []detection.Redaction) (string, []detection.Redaction) {
@@ -249,13 +277,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-func writeSecurityBlocked(w http.ResponseWriter, decision policy.Decision) {
+func writeSecurityBlocked(w http.ResponseWriter, decision policy.Decision, code, message string) {
 	detectionType := ""
 	if len(decision.MatchedRules) > 0 {
 		if strings.HasPrefix(decision.MatchedRules[0], "secret.") {
 			detectionType = string(detection.DetectionTypeSecret)
 		} else if strings.HasPrefix(decision.MatchedRules[0], "pii.") {
 			detectionType = string(detection.DetectionTypePII)
+		} else if strings.HasPrefix(decision.MatchedRules[0], "prompt.") {
+			detectionType = string(detection.DetectionTypePromptInjection)
 		}
 	}
 	ruleID := ""
@@ -263,9 +293,9 @@ func writeSecurityBlocked(w http.ResponseWriter, decision policy.Decision) {
 		ruleID = decision.MatchedRules[0]
 	}
 	writeJSON(w, http.StatusForbidden, errorResponseDTO{Error: apiErrorDTO{
-		Message:       "request blocked by AgentGuard security policy",
+		Message:       message,
 		Type:          "security_error",
-		Code:          "security_blocked",
+		Code:          code,
 		Decision:      string(policy.ActionBlock),
 		DetectionType: detectionType,
 		RuleID:        ruleID,

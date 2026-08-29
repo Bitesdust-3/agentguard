@@ -36,8 +36,9 @@ type ProviderConfig struct {
 }
 
 type DetectionConfig struct {
-	PII    DetectorConfig `yaml:"pii"`
-	Secret DetectorConfig `yaml:"secret"`
+	PII             DetectorConfig `yaml:"pii"`
+	Secret          DetectorConfig `yaml:"secret"`
+	PromptInjection DetectorConfig `yaml:"prompt_injection"`
 }
 
 type DetectorConfig struct {
@@ -46,7 +47,8 @@ type DetectorConfig struct {
 }
 
 type PolicyConfig struct {
-	Input InputPolicyConfig `yaml:"input"`
+	Input  InputPolicyConfig `yaml:"input"`
+	Output InputPolicyConfig `yaml:"output"`
 }
 
 type InputPolicyConfig struct {
@@ -77,8 +79,9 @@ func Default() Config {
 		},
 		Provider: ProviderConfig{Type: "mock"},
 		Detection: DetectionConfig{
-			PII:    DetectorConfig{Enabled: true, Threshold: 0.80},
-			Secret: DetectorConfig{Enabled: true, Threshold: 0.80},
+			PII:             DetectorConfig{Enabled: true, Threshold: 0.80},
+			Secret:          DetectorConfig{Enabled: true, Threshold: 0.80},
+			PromptInjection: DetectorConfig{Enabled: true, Threshold: 0.85},
 		},
 		Policy: PolicyConfig{Input: InputPolicyConfig{
 			DefaultAction: "PASS",
@@ -86,6 +89,14 @@ func Default() Config {
 				{ID: "input.secret.block.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.98}, Action: "BLOCK"},
 				{ID: "input.secret.redact.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.80}, Action: "REDACT"},
 				{ID: "input.pii.redact.v1", When: PolicyRuleWhen{DetectionType: "PII", MinScore: 0.80}, Action: "REDACT"},
+				{ID: "input.prompt_injection.block.v1", When: PolicyRuleWhen{DetectionType: "PROMPT_INJECTION", MinScore: 0.85}, Action: "BLOCK"},
+			},
+		}, Output: InputPolicyConfig{
+			DefaultAction: "PASS",
+			Rules: []PolicyRule{
+				{ID: "output.secret.block.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.98}, Action: "BLOCK"},
+				{ID: "output.secret.redact.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.80}, Action: "REDACT"},
+				{ID: "output.pii.redact.v1", When: PolicyRuleWhen{DetectionType: "PII", MinScore: 0.80}, Action: "REDACT"},
 			},
 		}},
 	}
@@ -135,21 +146,31 @@ func (c Config) Validate() error {
 	if err := validateDetectorConfig("detection.secret", c.Detection.Secret); err != nil {
 		return err
 	}
-	if !validTextPolicyAction(c.Policy.Input.DefaultAction) {
-		return fmt.Errorf("policy.input.default_action must be PASS, REDACT, or BLOCK")
+	if err := validateDetectorConfig("detection.prompt_injection", c.Detection.PromptInjection); err != nil {
+		return err
 	}
-	for index, rule := range c.Policy.Input.Rules {
+	if err := validateTextPolicyConfig("policy.input", c.Policy.Input); err != nil {
+		return err
+	}
+	return validateTextPolicyConfig("policy.output", c.Policy.Output)
+}
+
+func validateTextPolicyConfig(name string, policy InputPolicyConfig) error {
+	if !validTextPolicyAction(policy.DefaultAction) {
+		return fmt.Errorf("%s.default_action must be PASS, REDACT, or BLOCK", name)
+	}
+	for index, rule := range policy.Rules {
 		if strings.TrimSpace(rule.ID) == "" {
-			return fmt.Errorf("policy.input.rules[%d].id must not be empty", index)
+			return fmt.Errorf("%s.rules[%d].id must not be empty", name, index)
 		}
-		if rule.When.DetectionType != "PII" && rule.When.DetectionType != "SECRET" {
-			return fmt.Errorf("policy.input.rules[%d].when.detection_type must be PII or SECRET", index)
+		if rule.When.DetectionType != "PII" && rule.When.DetectionType != "SECRET" && rule.When.DetectionType != "PROMPT_INJECTION" {
+			return fmt.Errorf("%s.rules[%d].when.detection_type must be PII, SECRET, or PROMPT_INJECTION", name, index)
 		}
 		if rule.When.MinScore < 0 || rule.When.MinScore > 1 {
-			return fmt.Errorf("policy.input.rules[%d].when.min_score must be between 0 and 1", index)
+			return fmt.Errorf("%s.rules[%d].when.min_score must be between 0 and 1", name, index)
 		}
 		if !validTextPolicyAction(rule.Action) {
-			return fmt.Errorf("policy.input.rules[%d].action must be PASS, REDACT, or BLOCK", index)
+			return fmt.Errorf("%s.rules[%d].action must be PASS, REDACT, or BLOCK", name, index)
 		}
 	}
 	return nil

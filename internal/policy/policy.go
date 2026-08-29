@@ -36,6 +36,7 @@ type Rule struct {
 }
 
 type Config struct {
+	Stage         Stage
 	DefaultAction Action
 	Rules         []Rule
 }
@@ -60,6 +61,9 @@ type Engine struct {
 }
 
 func NewEngine(config Config) (*Engine, error) {
+	if config.Stage == "" {
+		config.Stage = StageInput
+	}
 	if err := Validate(config); err != nil {
 		return nil, err
 	}
@@ -73,10 +77,10 @@ func (e *Engine) Evaluate(subjectType detection.SubjectType, subjectID string, r
 		ID:               nextID(),
 		SubjectType:      subjectType,
 		SubjectID:        subjectID,
-		Stage:            StageInput,
+		Stage:            e.config.Stage,
 		Decision:         e.config.DefaultAction,
-		PolicyID:         "input.default.v1",
-		Reason:           "no input policy rule matched",
+		PolicyID:         strings.ToLower(string(e.config.Stage)) + ".default.v1",
+		Reason:           strings.ToLower(string(e.config.Stage)) + " policy default applied",
 		RiskScore:        maxRiskScore(results),
 		MatchedRules:     matchingDetectorRules(results),
 		ApprovalRequired: false,
@@ -86,7 +90,7 @@ func (e *Engine) Evaluate(subjectType detection.SubjectType, subjectID string, r
 		if matches(rule, results) {
 			decision.Decision = rule.Action
 			decision.PolicyID = rule.ID
-			decision.Reason = "input detection matched configured policy"
+			decision.Reason = strings.ToLower(string(e.config.Stage)) + " detection matched configured policy"
 			decision.MatchedRules = matchingRulesForPolicy(rule, results)
 			return decision
 		}
@@ -105,21 +109,24 @@ func matchingRulesForPolicy(rule Rule, results []detection.DetectionResult) []st
 }
 
 func Validate(config Config) error {
+	if config.Stage != "" && config.Stage != StageInput && config.Stage != StageOutput {
+		return fmt.Errorf("policy stage must be INPUT or OUTPUT")
+	}
 	if !validAction(config.DefaultAction) {
-		return fmt.Errorf("policy.input.default_action must be PASS, REDACT, or BLOCK")
+		return fmt.Errorf("policy default_action must be PASS, REDACT, or BLOCK")
 	}
 	for index, rule := range config.Rules {
 		if strings.TrimSpace(rule.ID) == "" {
-			return fmt.Errorf("policy.input.rules[%d].id must not be empty", index)
+			return fmt.Errorf("policy rules[%d].id must not be empty", index)
 		}
 		if !validDetectionType(rule.DetectionType) {
-			return fmt.Errorf("policy.input.rules[%d].when.detection_type is invalid", index)
+			return fmt.Errorf("policy rules[%d].when.detection_type is invalid", index)
 		}
 		if rule.MinScore < 0 || rule.MinScore > 1 {
-			return fmt.Errorf("policy.input.rules[%d].when.min_score must be between 0 and 1", index)
+			return fmt.Errorf("policy rules[%d].when.min_score must be between 0 and 1", index)
 		}
 		if !validAction(rule.Action) {
-			return fmt.Errorf("policy.input.rules[%d].action must be PASS, REDACT, or BLOCK", index)
+			return fmt.Errorf("policy rules[%d].action must be PASS, REDACT, or BLOCK", index)
 		}
 	}
 	return nil
@@ -130,7 +137,7 @@ func validAction(action Action) bool {
 }
 
 func validDetectionType(detectionType detection.DetectionType) bool {
-	return detectionType == detection.DetectionTypePII || detectionType == detection.DetectionTypeSecret
+	return detectionType == detection.DetectionTypePII || detectionType == detection.DetectionTypeSecret || detectionType == detection.DetectionTypePromptInjection
 }
 
 func matches(rule Rule, results []detection.DetectionResult) bool {

@@ -16,6 +16,9 @@ detection:
   secret:
     enabled: true
     threshold: 0.80
+  prompt_injection:
+    enabled: true
+    threshold: 0.85
 
 policy:
   input:
@@ -32,6 +35,29 @@ policy:
           min_score: 0.80
         action: REDACT
       - id: input.pii.redact.v1
+        when:
+          detection_type: PII
+          min_score: 0.80
+        action: REDACT
+      - id: input.prompt_injection.block.v1
+        when:
+          detection_type: PROMPT_INJECTION
+          min_score: 0.85
+        action: BLOCK
+  output:
+    default_action: PASS
+    rules:
+      - id: output.secret.block.v1
+        when:
+          detection_type: SECRET
+          min_score: 0.98
+        action: BLOCK
+      - id: output.secret.redact.v1
+        when:
+          detection_type: SECRET
+          min_score: 0.80
+        action: REDACT
+      - id: output.pii.redact.v1
         when:
           detection_type: PII
           min_score: 0.80

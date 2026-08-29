@@ -55,3 +55,16 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputEngineSetsOutputStage(t *testing.T) {
+	t.Parallel()
+
+	engine, err := NewEngine(Config{Stage: StageOutput, DefaultAction: ActionPass})
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	decision := engine.Evaluate(detection.SubjectTypeRequest, "request-test", nil)
+	if decision.Stage != StageOutput || decision.PolicyID != "output.default.v1" {
+		t.Fatalf("decision = %+v, want output policy default", decision)
+	}
+}

@@ -1,0 +1,10 @@
+# Local environment configuration
+.env
+
+# Go build and test artifacts
+bin/
+*.test
+coverage.out
+
+# Operating system files
+.DS_Store

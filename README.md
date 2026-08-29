@@ -17,7 +17,14 @@ Build a focused, explainable, and testable security project suitable for public 
 - Initial open-source documentation and configuration skeleton.
 - [v1.0 architecture and core-contract design freeze](docs/architecture-v1.md).
 
-No AgentGuard business capability has been implemented yet.
+No AgentGuard security business capability has been implemented yet.
+
+### Implemented infrastructure
+
+- YAML-backed local configuration with safe defaults.
+- SQLite connection bootstrap with foreign-key enforcement and versioned schema metadata.
+- `GET /health` JSON endpoint.
+- Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
@@ -59,7 +66,21 @@ The directories above are intentionally empty during this initialization stage. 
 
 ## Quick Start
 
-Not available yet. A runnable setup will be documented only after the initial architecture and core contracts are confirmed.
+From the repository root:
+
+```bash
+go run ./cmd/agentguard
+```
+
+Then request `http://127.0.0.1:8080/health`.
+
+To run the test suite:
+
+```bash
+go test ./...
+```
+
+The security gateway, detectors, policy engine, tools, audit features, dashboard, benchmark, and LLM providers are still planned work.
 
 ## Roadmap
 

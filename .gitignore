@@ -6,5 +6,12 @@ bin/
 *.test
 coverage.out
 
+# Local SQLite runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
 # Operating system files
 .DS_Store

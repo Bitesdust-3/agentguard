@@ -1,0 +1,62 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLoad(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "server:\n  host: 127.0.0.1\n  port: 9090\nstorage:\n  sqlite_path: test.db\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write configuration: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	if got, want := cfg.ListenAddr(), "127.0.0.1:9090"; got != want {
+		t.Fatalf("ListenAddr() = %q, want %q", got, want)
+	}
+	if got, want := cfg.Storage.SQLitePath, "test.db"; got != want {
+		t.Fatalf("SQLitePath = %q, want %q", got, want)
+	}
+}
+
+func TestLoadRejectsInvalidConfiguration(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "server:\n  host: ''\n  port: 70000\nstorage:\n  sqlite_path: ''\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write configuration: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() returned nil error for invalid configuration")
+	}
+	if !strings.Contains(err.Error(), "server.host") {
+		t.Fatalf("Load() error = %q, want server.host error", err)
+	}
+}
+
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := "server:\n  host: 127.0.0.1\n  port: 8080\n  unknown: true\nstorage:\n  sqlite_path: test.db\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write configuration: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() returned nil error for unknown field")
+	}
+}

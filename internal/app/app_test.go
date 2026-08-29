@@ -12,7 +12,7 @@ func TestHealth(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
-	NewHandler("test", nil, nil).ServeHTTP(response, request)
+	NewHandler("test", nil, nil, nil).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusOK; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
@@ -36,9 +36,27 @@ func TestHealthRejectsOtherMethods(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/health", nil)
 	response := httptest.NewRecorder()
-	NewHandler("test", nil, nil).ServeHTTP(response, request)
+	NewHandler("test", nil, nil, nil).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusMethodNotAllowed; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+}
+
+func TestAuditRouteUsesAuditHandler(t *testing.T) {
+	t.Parallel()
+
+	auditHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	toolHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/audit/events", nil)
+	response := httptest.NewRecorder()
+	NewHandler("test", nil, toolHandler, auditHandler).ServeHTTP(response, request)
+
+	if got, want := response.Code, http.StatusNoContent; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bitesdust/agentguard/internal/audit"
 	"github.com/bitesdust/agentguard/internal/config"
 	"github.com/bitesdust/agentguard/internal/detection"
 	"github.com/bitesdust/agentguard/internal/gateway"
@@ -53,12 +54,13 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 		_ = store.Close()
 		return nil, err
 	}
-	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools))
+	auditStore := audit.New(store.DB())
+	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools, auditStore))
 
 	return &Application{
 		Server: &http.Server{
 			Addr:              cfg.ListenAddr(),
-			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy), toolHandler),
+			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy, auditStore), toolHandler, auditStore),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       60 * time.Second,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -137,14 +139,17 @@ func (a *Application) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// NewHandler exposes only the infrastructure health endpoint in this stage.
-func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handler) http.Handler {
+// NewHandler mounts the public gateway, local management APIs, and health endpoint.
+func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handler, auditHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if chatHandler != nil {
 		mux.Handle("/v1/chat/completions", chatHandler)
 	}
 	if toolHandler != nil {
 		mux.Handle("/api/", toolHandler)
+	}
+	if auditHandler != nil {
+		mux.Handle("/api/audit/events", auditHandler)
 	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

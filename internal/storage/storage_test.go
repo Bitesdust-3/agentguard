@@ -32,8 +32,8 @@ func TestOpenInitializesSQLite(t *testing.T) {
 	if err := store.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatalf("query schema migrations: %v", err)
 	}
-	if migrations != 2 {
-		t.Fatalf("schema migrations = %d, want 2", migrations)
+	if migrations != 3 {
+		t.Fatalf("schema migrations = %d, want 3", migrations)
 	}
 	if err := store.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate() error: %v", err)
@@ -41,7 +41,7 @@ func TestOpenInitializesSQLite(t *testing.T) {
 	if err := store.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&migrations); err != nil {
 		t.Fatalf("query schema migrations after second run: %v", err)
 	}
-	if migrations != 2 {
-		t.Fatalf("schema migrations after second run = %d, want 2", migrations)
+	if migrations != 3 {
+		t.Fatalf("schema migrations after second run = %d, want 3", migrations)
 	}
 }

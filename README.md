@@ -33,13 +33,17 @@ Build a focused, explainable, and testable security project suitable for public 
 - Output Secret/PII guard with response redaction or safe blocking.
 - Configuration-driven Agent Tool Policy decisions using `PASS`, `APPROVAL`, and `BLOCK`.
 - Persisted single-step approval workflow and execution-state protection for five controlled Mock/Demo tools.
+- Privacy-minimized SQLite security audit trail for Chat requests, detections, policy decisions, Tool Calls, and approvals.
+- Stable Chat Request ID and Tool Call ID correlation across persisted audit records.
+- Fail-closed audit persistence for critical Chat and pre-execution Tool/Approval paths.
+- Local-admin `GET /api/audit/events` API with event, decision, detection, request, tool-call, and limit filters.
 
 The current Tool Executor is mock-only: it never reads or deletes real files, sends email, queries a database, runs shell commands, or contacts external systems.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- Audit log and lightweight dashboard.
+- Lightweight audit dashboard.
 - Security benchmark.
 
 ## Planned Technology Stack
@@ -81,7 +85,7 @@ Then request `http://127.0.0.1:8080/health`.
 To exercise the local Mock Provider:
 
 ```bash
-curl --noproxy '*' http://127.0.0.1:8080/v1/chat/completions \
+curl --noproxy '*' -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello AgentGuard"}]}'
 ```
@@ -92,13 +96,13 @@ To run the test suite:
 go test ./...
 ```
 
-Audit features, dashboard, benchmark, and real LLM providers are still planned work.
+The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Dashboard, benchmark, and real LLM providers are still planned work.
 
 ## Roadmap
 
 - **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** Audit, dashboard, benchmark, and one real OpenAI-compatible provider.
-- **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated.
+- **Planned:** Lightweight dashboard, benchmark, and one real OpenAI-compatible provider.
+- **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated. For future Tools with real external side effects, a final Audit persistence failure after the external action cannot be rolled back by a local SQLite transaction; production designs may consider idempotent external operations, Outbox, or Workflow patterns.
 
 ## License
 

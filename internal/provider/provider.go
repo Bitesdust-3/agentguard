@@ -11,8 +11,9 @@ type Provider interface {
 
 // ChatRequest is independent of the OpenAI HTTP request DTO.
 type ChatRequest struct {
-	Model    string
-	Messages []ChatMessage
+	RequestID string
+	Model     string
+	Messages  []ChatMessage
 }
 
 type ChatMessage struct {

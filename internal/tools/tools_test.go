@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/bitesdust/agentguard/internal/audit"
 	"github.com/bitesdust/agentguard/internal/config"
 	"github.com/bitesdust/agentguard/internal/storage"
 )
@@ -110,5 +111,5 @@ func testService(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return NewService(store.DB(), config.Default().Tools)
+	return NewService(store.DB(), config.Default().Tools, audit.New(store.DB()))
 }

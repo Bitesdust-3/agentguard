@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitesdust/agentguard/internal/audit"
 	"github.com/bitesdust/agentguard/internal/detection"
 	"github.com/bitesdust/agentguard/internal/policy"
 	"github.com/bitesdust/agentguard/internal/provider"
@@ -252,6 +253,10 @@ func TestChatCompletionsBlocksSensitiveProviderOutput(t *testing.T) {
 }
 
 func newTestHandler(chatProvider provider.Provider) *Handler {
+	return newTestHandlerWithAudit(chatProvider, discardAudit{})
+}
+
+func newTestHandlerWithAudit(chatProvider provider.Provider, auditRecorder audit.Recorder) *Handler {
 	inputPolicy, err := policy.NewEngine(policy.Config{
 		DefaultAction: policy.ActionPass,
 		Rules: []policy.Rule{
@@ -290,7 +295,17 @@ func newTestHandler(chatProvider provider.Provider) *Handler {
 	}, map[detection.DetectionType]float64{
 		detection.DetectionTypeSecret: 0.80,
 		detection.DetectionTypePII:    0.80,
-	}), outputPolicy)
+	}), outputPolicy, auditRecorder)
+}
+
+type discardAudit struct{}
+
+func (discardAudit) StartRequest(context.Context, audit.Request) error          { return nil }
+func (discardAudit) Detection(context.Context, detection.DetectionResult) error { return nil }
+func (discardAudit) Decision(context.Context, policy.Decision) error            { return nil }
+func (discardAudit) Event(context.Context, audit.Event) error                   { return nil }
+func (discardAudit) CompleteRequest(context.Context, string, audit.RequestCompletion) error {
+	return nil
 }
 
 type recordingProvider struct {

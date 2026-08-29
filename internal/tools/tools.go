@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/bitesdust/agentguard/internal/audit"
 	"github.com/bitesdust/agentguard/internal/config"
+	"github.com/bitesdust/agentguard/internal/detection"
 	"github.com/bitesdust/agentguard/internal/policy"
 )
 
@@ -72,26 +75,44 @@ type Request struct {
 	Sensitive   bool            `json:"sensitive"`
 }
 type Service struct {
-	db  *sql.DB
-	cfg config.ToolsConfig
-	mu  sync.Mutex
+	db       *sql.DB
+	cfg      config.ToolsConfig
+	audit    audit.TransactionalRecorder
+	executor Executor
+	mu       sync.Mutex
 }
 
 var sequence atomic.Uint64
 
-func NewService(db *sql.DB, cfg config.ToolsConfig) *Service { return &Service{db: db, cfg: cfg} }
-func next(prefix string) string                              { return fmt.Sprintf("%s_%d", prefix, sequence.Add(1)) }
+// Executor invokes one controlled demo tool after the service has persisted
+// its authorization and execution claim.
+type Executor interface {
+	Execute(context.Context, Call) error
+}
+
+type mockExecutor struct{}
+
+func NewService(db *sql.DB, cfg config.ToolsConfig, auditRecorder audit.TransactionalRecorder) *Service {
+	return newService(db, cfg, auditRecorder, mockExecutor{})
+}
+
+func newService(db *sql.DB, cfg config.ToolsConfig, auditRecorder audit.TransactionalRecorder, executor Executor) *Service {
+	return &Service{db: db, cfg: cfg, audit: auditRecorder, executor: executor}
+}
+
+func next(prefix string) string { return fmt.Sprintf("%s_%d", prefix, sequence.Add(1)) }
 
 func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval, error) {
-	if !known(request.ToolName) {
-		return Call{}, nil, ErrUnknownTool
-	}
-	if strings.TrimSpace(request.TargetType) == "" {
+	if !safeLabel(request.ToolName) || !safeLabel(request.TargetType) {
 		return Call{}, nil, ErrInvalidRequest
 	}
 	action, policyID := s.evaluate(request)
+	if !known(request.ToolName) {
+		action = policy.ActionBlock
+		policyID = "tools.unknown.block.v1"
+	}
 	now := time.Now().UTC()
-	call := Call{ID: next("tool"), ToolName: request.ToolName, TargetType: request.TargetType, External: request.External, Destructive: request.Destructive, Sensitive: request.Sensitive, Decision: action, PolicyID: policyID, ArgumentsSummary: "arguments accepted but not retained", CreatedAt: now, UpdatedAt: now}
+	call := Call{ID: next("tool"), ToolName: request.ToolName, TargetType: request.TargetType, External: request.External, Destructive: request.Destructive, Sensitive: request.Sensitive, Decision: action, PolicyID: policyID, ArgumentsSummary: summarizeArguments(request.Arguments), CreatedAt: now, UpdatedAt: now}
 	switch action {
 	case policy.ActionPass:
 		call.State = StatePass
@@ -109,6 +130,27 @@ func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval,
 	if err != nil {
 		return Call{}, nil, err
 	}
+	if err := s.recordEvent(ctx, tx, audit.Event{
+		EventType: audit.EventToolCallCreated, Actor: audit.ActorTool, Source: string(policy.StageTool),
+		ToolCallID: call.ID, Summary: safeToolSummary(call),
+	}); err != nil {
+		return Call{}, nil, err
+	}
+	decision := toolPolicyDecision(call, now)
+	if s.audit == nil {
+		return Call{}, nil, ErrAuditPersistence
+	}
+	if err := s.audit.DecisionWith(ctx, tx, decision); err != nil {
+		return Call{}, nil, auditError(err)
+	}
+	score := decision.RiskScore
+	if err := s.recordEvent(ctx, tx, audit.Event{
+		EventType: audit.EventToolPolicy, Actor: audit.ActorTool, Source: string(policy.StageTool),
+		ToolCallID: call.ID, Decision: string(call.Decision), RiskScore: &score,
+		Summary: "tool policy decision recorded",
+	}); err != nil {
+		return Call{}, nil, err
+	}
 	var approval *Approval
 	if action == policy.ActionApproval {
 		a := Approval{ID: next("approval"), ToolCallID: call.ID, Status: ApprovalPending, RequestedAt: now}
@@ -116,7 +158,22 @@ func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval,
 		if err != nil {
 			return Call{}, nil, err
 		}
+		if err := s.recordEvent(ctx, tx, audit.Event{
+			EventType: audit.EventApprovalRequested, Actor: audit.ActorTool, Source: string(policy.StageTool),
+			ToolCallID: call.ID, ApprovalID: a.ID, Decision: string(policy.ActionApproval),
+			Summary: "tool approval requested",
+		}); err != nil {
+			return Call{}, nil, err
+		}
 		approval = &a
+	}
+	if action == policy.ActionBlock {
+		if err := s.recordEvent(ctx, tx, audit.Event{
+			EventType: audit.EventToolBlocked, Actor: audit.ActorTool, Source: string(policy.StageTool),
+			ToolCallID: call.ID, Decision: string(policy.ActionBlock), Summary: "tool call blocked by policy",
+		}); err != nil {
+			return Call{}, nil, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return Call{}, nil, err
@@ -126,6 +183,80 @@ func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval,
 		return call, nil, err
 	}
 	return call, approval, nil
+}
+
+func (s *Service) recordEvent(ctx context.Context, executor audit.SQLExecutor, event audit.Event) error {
+	if s.audit == nil {
+		return ErrAuditPersistence
+	}
+	if err := s.audit.EventWith(ctx, executor, event); err != nil {
+		return auditError(err)
+	}
+	return nil
+}
+
+func toolPolicyDecision(call Call, createdAt time.Time) policy.Decision {
+	return policy.Decision{
+		ID:               next("policy_tool"),
+		SubjectType:      detection.SubjectTypeToolCall,
+		SubjectID:        call.ID,
+		Stage:            policy.StageTool,
+		Decision:         call.Decision,
+		PolicyID:         call.PolicyID,
+		Reason:           "tool attributes matched configured policy",
+		RiskScore:        toolRiskScore(call),
+		MatchedRules:     []string{call.PolicyID},
+		ApprovalRequired: call.Decision == policy.ActionApproval,
+		CreatedAt:        createdAt,
+	}
+}
+
+func toolRiskScore(call Call) float64 {
+	switch {
+	case call.Destructive:
+		return 1
+	case call.Sensitive:
+		return 0.8
+	case call.External:
+		return 0.6
+	default:
+		return 0
+	}
+}
+
+func safeToolSummary(call Call) string {
+	return fmt.Sprintf("tool=%s; target_type=%s; external=%t; destructive=%t; sensitive=%t", call.ToolName, call.TargetType, call.External, call.Destructive, call.Sensitive)
+}
+
+func summarizeArguments(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "argument_count=0"
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err == nil {
+		keys := make([]string, 0, len(object))
+		for key := range object {
+			if safeLabel(key) {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		return fmt.Sprintf("argument_count=%d; fields=%s", len(object), strings.Join(keys, ","))
+	}
+	return "arguments_present=true; values_not_retained"
+}
+
+func safeLabel(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '.' || char == '_' || char == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (s *Service) evaluate(request Request) (policy.Action, string) {
@@ -199,7 +330,7 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, reason st
 	} else {
 		a.Status = ApprovalRejected
 	}
-	a.Reason = reason
+	a.Reason = safeApprovalReason(reason)
 	a.DecidedAt = &now
 	_, err = tx.ExecContext(ctx, `UPDATE approvals SET status=?,reason=?,decided_at=? WHERE id=? AND status='PENDING'`, a.Status, a.Reason, stamp(now), a.ID)
 	if err != nil {
@@ -223,6 +354,18 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, reason st
 		s.mu.Unlock()
 		return Call{}, Approval{}, ErrConflict
 	}
+	eventType := audit.EventApprovalRejected
+	if approve {
+		eventType = audit.EventApprovalApproved
+	}
+	if err := s.recordEvent(ctx, tx, audit.Event{
+		EventType: eventType, Actor: audit.ActorTool, Source: string(policy.StageTool),
+		ToolCallID: a.ToolCallID, ApprovalID: a.ID, Summary: "tool approval decision recorded",
+	}); err != nil {
+		_ = tx.Rollback()
+		s.mu.Unlock()
+		return Call{}, Approval{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		s.mu.Unlock()
 		return Call{}, Approval{}, err
@@ -240,50 +383,111 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, reason st
 func (s *Service) execute(ctx context.Context, id string) (Call, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, _, err := s.Get(ctx, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Call{}, err
+	}
+	defer tx.Rollback()
+	c, err := scanCall(tx.QueryRowContext(ctx, `SELECT id,tool_name,target_type,external,destructive,sensitive,decision,state,policy_id,arguments_summary,COALESCE(result_summary,''),created_at,updated_at FROM tool_calls WHERE id=?`, id))
 	if err != nil {
 		return Call{}, err
 	}
 	if c.State != StatePass && c.State != StateApproved {
 		return Call{}, ErrNotExecutable
 	}
-	result, err := mockExecute(c)
-	now := time.Now().UTC()
-	state := StateExecuted
-	if err != nil {
-		state = StateFailed
-	}
-	_, dbErr := s.db.ExecContext(ctx, `UPDATE tool_calls SET state=?,result_summary=?,updated_at=? WHERE id=? AND state IN ('PASS','APPROVED')`, state, result, stamp(now), id)
-	if dbErr != nil {
-		return Call{}, dbErr
-	}
+	executionKey := next("execution")
+	claim, err := tx.ExecContext(ctx, `UPDATE tool_calls SET execution_key=? WHERE id=? AND state IN ('PASS','APPROVED') AND execution_key IS NULL`, executionKey, id)
 	if err != nil {
 		return Call{}, err
 	}
+	claimed, err := claim.RowsAffected()
+	if err != nil {
+		return Call{}, err
+	}
+	if claimed != 1 {
+		return Call{}, ErrNotExecutable
+	}
+	if err := s.recordEvent(ctx, tx, audit.Event{
+		EventType: audit.EventToolExecutionStarted, Actor: audit.ActorTool, Source: string(policy.StageTool),
+		ToolCallID: id, Decision: string(c.Decision), Summary: "tool execution authorized",
+	}); err != nil {
+		return Call{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Call{}, err
+	}
+
+	executionErr := s.executor.Execute(ctx, c)
+	now := time.Now().UTC()
+	state := StateExecuted
+	eventType := audit.EventToolExecuted
+	resultSummary := "mock tool execution completed"
+	if executionErr != nil {
+		state = StateFailed
+		eventType = audit.EventToolFailed
+		resultSummary = "mock tool execution failed"
+	}
+	finalTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Call{}, err
+	}
+	defer finalTx.Rollback()
+	result, err := finalTx.ExecContext(ctx, `UPDATE tool_calls SET state=?,result_summary=?,updated_at=? WHERE id=? AND execution_key=? AND state IN ('PASS','APPROVED')`, state, resultSummary, stamp(now), id, executionKey)
+	if err != nil {
+		return Call{}, err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return Call{}, err
+	}
+	if updated != 1 {
+		return Call{}, ErrConflict
+	}
+	if err := s.recordEvent(ctx, finalTx, audit.Event{
+		EventType: eventType, Actor: audit.ActorTool, Source: string(policy.StageTool),
+		ToolCallID: id, Decision: string(c.Decision), Summary: resultSummary,
+	}); err != nil {
+		return Call{}, err
+	}
+	if err := finalTx.Commit(); err != nil {
+		return Call{}, err
+	}
 	c, _, err = s.Get(ctx, id)
-	return c, err
+	if err != nil {
+		return Call{}, err
+	}
+	if executionErr != nil {
+		return c, executionErr
+	}
+	return c, nil
 }
-func mockExecute(c Call) (string, error) {
+
+func (mockExecutor) Execute(_ context.Context, c Call) error {
 	switch c.ToolName {
-	case "weather.read":
-		return "mock weather: clear, 22C", nil
-	case "file.read":
-		return "mock file content", nil
-	case "email.send":
-		return "mock email sent", nil
-	case "database.query":
-		return "mock database result", nil
+	case "weather.read", "file.read", "email.send", "database.query":
+		return nil
 	default:
-		return "", fmt.Errorf("mock executor has no action for tool")
+		return fmt.Errorf("mock executor has no action for tool")
 	}
 }
 
+func safeApprovalReason(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
+	return "approval reason provided but not retained"
+}
+
 var (
-	ErrUnknownTool    = errors.New("unknown tool")
-	ErrInvalidRequest = errors.New("invalid tool request")
-	ErrConflict       = errors.New("tool state conflict")
-	ErrNotExecutable  = errors.New("tool is not executable")
+	ErrInvalidRequest   = errors.New("invalid tool request")
+	ErrConflict         = errors.New("tool state conflict")
+	ErrNotExecutable    = errors.New("tool is not executable")
+	ErrAuditPersistence = errors.New("required audit persistence failed")
 )
+
+func auditError(err error) error {
+	return fmt.Errorf("%w: %v", ErrAuditPersistence, err)
+}
 
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
@@ -356,10 +560,12 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	c, a, err := h.service.Submit(r.Context(), v)
 	if err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, ErrUnknownTool) {
-			status = http.StatusForbidden
+		code := "tool_rejected"
+		if errors.Is(err, ErrAuditPersistence) {
+			status = http.StatusInternalServerError
+			code = "audit_persistence_failed"
 		}
-		returnError(w, status, "tool_rejected")
+		returnError(w, status, code)
 		return
 	}
 	write(w, http.StatusCreated, struct {
@@ -377,7 +583,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	if err != nil {
-		returnError(w, 500, "internal_error")
+		code := "internal_error"
+		if errors.Is(err, ErrAuditPersistence) {
+			code = "audit_persistence_failed"
+		}
+		returnError(w, 500, code)
 		return
 	}
 	write(w, 200, struct {
@@ -388,7 +598,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 func (h *Handler) pending(w http.ResponseWriter, r *http.Request) {
 	a, err := h.service.Pending(r.Context())
 	if err != nil {
-		returnError(w, 500, "internal_error")
+		code := "internal_error"
+		if errors.Is(err, ErrAuditPersistence) {
+			code = "audit_persistence_failed"
+		}
+		returnError(w, 500, code)
 		return
 	}
 	write(w, 200, struct {
@@ -413,7 +627,11 @@ func (h *Handler) decide(w http.ResponseWriter, r *http.Request, id string, appr
 		return
 	}
 	if err != nil {
-		returnError(w, 500, "internal_error")
+		code := "internal_error"
+		if errors.Is(err, ErrAuditPersistence) {
+			code = "audit_persistence_failed"
+		}
+		returnError(w, 500, code)
 		return
 	}
 	write(w, 200, struct {

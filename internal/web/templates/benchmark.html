@@ -1,0 +1,21 @@
+{{define "content"}}
+{{if .Benchmark.Found}}
+<section class="metric-grid">
+  <article class="metric"><span>Dataset</span><strong>{{.Benchmark.DatasetVersion}}</strong></article>
+  <article class="metric"><span>Samples</span><strong>{{.Benchmark.Total}}</strong></article>
+  <article class="metric"><span>Detection Accuracy</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}</strong></article>
+  <article class="metric"><span>Precision</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}</strong></article>
+  <article class="metric"><span>Recall</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}</strong></article>
+  <article class="metric"><span>False Positive Rate</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}</strong></article>
+  <article class="metric"><span>False Negative Rate</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}</strong></article>
+  <article class="metric"><span>Decision Accuracy</span><strong>{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}</strong></article>
+  <article class="metric"><span>Avg Added Latency</span><strong>{{.Benchmark.Metrics.AverageLatency}}</strong></article>
+  <article class="metric"><span>P50 Added Latency</span><strong>{{.Benchmark.Metrics.P50}}</strong></article>
+  <article class="metric"><span>P95 Added Latency</span><strong>{{.Benchmark.Metrics.P95}}</strong></article>
+</section>
+<section class="panel"><h2>Reproducibility</h2><p>Run: {{.Benchmark.RunID}} · Dataset hash: {{.Benchmark.DatasetHash}} · Config hash: {{.Benchmark.ConfigHash}}</p></section>
+<section class="panel"><h2>Recent Benchmark Runs</h2><div class="table-wrap"><table><thead><tr><th>Run</th><th>Dataset</th><th>Samples</th><th>Completed</th></tr></thead><tbody>{{range .Benchmark.Runs}}<tr><td><a href="/dashboard/benchmark?run={{.ID}}">{{.ID}}</a></td><td>{{.DatasetVersion}}</td><td>{{.Total}}</td><td>{{formatTime .CompletedAt}}</td></tr>{{end}}</tbody></table></div></section>
+<section class="panel"><h2>Category Metrics</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th>Samples</th><th>Detection accuracy</th><th>Recall</th><th>Decision accuracy</th><th>Passed</th><th>Failed</th><th>Avg added latency</th></tr></thead><tbody>{{range .Benchmark.Categories}}<tr><td>{{.Name}}</td><td>{{.Metrics.SampleCount}}</td><td>{{benchmarkRate .Metrics .Metrics.Accuracy}}</td><td>{{benchmarkRate .Metrics .Metrics.Recall}}</td><td>{{printf "%.3f" .Metrics.DecisionAccuracy}}</td><td>{{.Metrics.Passed}}</td><td>{{.Metrics.Failed}}</td><td>{{.Metrics.AverageLatency}}</td></tr>{{end}}</tbody></table></div></section>
+<section class="panel"><h2>Safe Failure Summary</h2><p class="empty">Input text, Prompts, provider responses, and raw sensitive values are never displayed here.</p><div class="table-wrap"><table><thead><tr><th>Sample</th><th>Category</th><th>Expected</th><th>Actual</th><th>Rule</th><th>Safe reason</th></tr></thead><tbody>{{range .Benchmark.Failures}}<tr><td>{{.ID}}</td><td>{{.Category}}</td><td>{{.ExpectedDecision}}</td><td>{{.ActualDecision}}</td><td>{{.MatchedRule}}</td><td>{{.SafeReason}}</td></tr>{{else}}<tr><td colspan="6" class="empty">No failed samples.</td></tr>{{end}}</tbody></table></div></section>
+{{else}}<section class="panel"><h2>No Benchmark runs yet</h2><p class="empty">Run the CLI Benchmark first; this Dashboard only reads persisted results.</p></section>{{end}}
+{{end}}

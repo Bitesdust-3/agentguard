@@ -40,14 +40,15 @@ Build a focused, explainable, and testable security project suitable for public 
 - Lightweight local Security Dashboard with overview metrics, security-event filters, request/tool timelines, and Tool/Approval controls.
 - Server-rendered Go Templates with HTMX-enhanced event filtering, periodic overview refresh, and existing Approval API actions.
 - Deterministic Security Benchmark Runner that reuses production Detector, Policy, and Tool Policy logic.
-- Development-scale fictional Benchmark dataset with detection metrics, policy-decision accuracy, Tool Policy evaluation, reproducible hashes, and SQLite run persistence.
+- Development-scale fixtures plus a 266-case Curated Benchmark v1 covering seven security categories, hard negatives, and boundary cases using fictional data.
+- Read-only Benchmark Dashboard view for the latest persisted run, including aggregate and per-category metrics, latency, reproducibility hashes, and privacy-safe failure summaries.
 
 The current Tool Executor is mock-only: it never reads or deletes real files, sends email, queries a database, runs shell commands, or contacts external systems.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- Expanded benchmark datasets and reporting.
+- One real OpenAI-compatible provider.
 
 ## Planned Technology Stack
 
@@ -99,7 +100,7 @@ To run the test suite:
 go test ./...
 ```
 
-Open the local dashboard at `http://127.0.0.1:8080/dashboard`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Expanded Benchmark reporting and real LLM providers are still planned work.
+Open the local dashboard at `http://127.0.0.1:8080/dashboard`; the persisted Benchmark view is at `/dashboard/benchmark`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. A real LLM provider is still planned work.
 
 Run the development Benchmark dataset with:
 
@@ -109,10 +110,20 @@ go run ./cmd/benchmark -dataset tests/benchmark/development.yaml
 
 It uses fictional samples only and records privacy-minimized results; the current dataset is for development validation, not final public benchmark claims.
 
+Run the manually reviewed, fictional Curated Benchmark v1 with a fixed seed:
+
+```bash
+go run ./cmd/benchmark -dataset tests/benchmark/benchmark-v1.yaml -seed 42
+```
+
+The 266 cases are evenly distributed across normal, PII, Secret, direct and indirect Prompt Injection, Tool misuse, and approval-bypass scenarios. They include hard negatives and boundary cases and execute the production Detector, Policy, and Tool Policy implementations. With the default configuration and version `dev`, the current measured detection results are Accuracy `0.911`, Precision `0.950`, Recall `0.854`, FPR `0.040`, and FNR `0.146`; Decision Accuracy is `0.929`. Latency varies by machine and run, so the CLI and Dashboard show the measured average, P50, and P95 rather than a fixed claim.
+
+These results expose real limitations instead of tuning them away: paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type. AgentGuard does not claim state-of-the-art, comprehensive, enterprise-grade, or 100% safe detection.
+
 ## Roadmap
 
 - **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** Expanded benchmark datasets/reporting and one real OpenAI-compatible provider.
+- **Planned:** One real OpenAI-compatible provider.
 - **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated. For future Tools with real external side effects, a final Audit persistence failure after the external action cannot be rolled back by a local SQLite transaction; production designs may consider idempotent external operations, Outbox, or Workflow patterns.
 
 ## License

@@ -45,6 +45,34 @@ func TestLoadDevelopmentDatasetAndRunProductionLogic(t *testing.T) {
 	}
 }
 
+func TestCuratedBenchmarkV1DistributionAndUniqueInputs(t *testing.T) {
+	dataset, err := Load(filepath.Join("..", "..", "tests", "benchmark", "benchmark-v1.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dataset.Samples) != 266 {
+		t.Fatalf("samples = %d, want 266", len(dataset.Samples))
+	}
+	counts := map[string]int{}
+	inputs := map[string]string{}
+	for _, sample := range dataset.Samples {
+		counts[sample.Category]++
+		if sample.Input == "" {
+			continue
+		}
+		normalized := strings.ToLower(strings.TrimSpace(sample.Input))
+		if previous, exists := inputs[normalized]; exists {
+			t.Fatalf("duplicate input for %s and %s", previous, sample.ID)
+		}
+		inputs[normalized] = sample.ID
+	}
+	for _, category := range categories() {
+		if counts[category] != 38 {
+			t.Fatalf("category %s count = %d, want 38", category, counts[category])
+		}
+	}
+}
+
 func TestDatasetValidationAndHashes(t *testing.T) {
 	positive := true
 	dataset := Dataset{Version: "v1", Samples: []Sample{{ID: "one", Category: CategoryPII, Input: "demo@example.test", ExpectedDetection: &positive, ExpectedDecision: "REDACT", Notes: "fictional"}}}
@@ -112,6 +140,16 @@ func TestMetricsAndPersistenceNeverStoreRawInput(t *testing.T) {
 	if err := Persist(context.Background(), store.DB(), run); err != nil {
 		t.Fatal(err)
 	}
+	secondRun, err := runner.Run(context.Background(), dataset, 7, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRun.ID == run.ID {
+		t.Fatalf("run ids must differ across persisted executions: %q", run.ID)
+	}
+	if err := Persist(context.Background(), store.DB(), secondRun); err != nil {
+		t.Fatal(err)
+	}
 	var runCount, resultCount int
 	if err := store.DB().QueryRow("SELECT COUNT(*) FROM benchmark_runs").Scan(&runCount); err != nil {
 		t.Fatal(err)
@@ -119,7 +157,7 @@ func TestMetricsAndPersistenceNeverStoreRawInput(t *testing.T) {
 	if err := store.DB().QueryRow("SELECT COUNT(*) FROM benchmark_results").Scan(&resultCount); err != nil {
 		t.Fatal(err)
 	}
-	if runCount != 1 || resultCount != 1 {
+	if runCount != 2 || resultCount != 2 {
 		t.Fatalf("persisted rows: %d %d", runCount, resultCount)
 	}
 	rows, err := store.DB().Query(`SELECT id,benchmark_run_id,case_id,category,COALESCE(expected_rule,''),COALESCE(matched_rule,''),safe_reason FROM benchmark_results`)

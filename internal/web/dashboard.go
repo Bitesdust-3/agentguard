@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/audit"
+	"github.com/bitesdust/agentguard/internal/benchmark"
 )
 
 //go:embed templates/*.html static/dashboard.css
@@ -25,14 +26,37 @@ type Handler struct {
 }
 
 type pageData struct {
-	Title    string
-	Active   string
-	Version  string
-	Overview overviewData
-	Events   eventsData
-	Tools    toolsData
-	Request  requestDetail
-	Tool     toolDetail
+	Title     string
+	Active    string
+	Version   string
+	Overview  overviewData
+	Events    eventsData
+	Tools     toolsData
+	Request   requestDetail
+	Tool      toolDetail
+	Benchmark benchmarkData
+}
+
+type benchmarkData struct {
+	Found                                          bool
+	RunID, DatasetVersion, DatasetHash, ConfigHash string
+	Total                                          int
+	Metrics                                        benchmark.Metrics
+	Categories                                     []benchmarkCategory
+	Failures                                       []benchmark.CaseResult
+	Runs                                           []benchmarkRunRow
+}
+
+type benchmarkCategory struct {
+	Name    string
+	Metrics benchmark.Metrics
+}
+
+type benchmarkRunRow struct {
+	ID             string
+	DatasetVersion string
+	Total          int
+	CompletedAt    time.Time
 }
 
 type overviewData struct {
@@ -140,11 +164,12 @@ func New(db *sql.DB, version string) (*Handler, error) {
 		"formatTime":     formatTime,
 		"formatTimePtr":  formatTimePtr,
 		"formatScore":    formatScore,
+		"benchmarkRate":  benchmarkRate,
 		"decisionClass":  decisionClass,
 		"detectionClass": detectionClass,
 	}
-	templates := make(map[string]*template.Template, 5)
-	for _, name := range []string{"overview", "events", "tools", "request", "tool"} {
+	templates := make(map[string]*template.Template, 6)
+	for _, name := range []string{"overview", "events", "tools", "request", "tool", "benchmark"} {
 		tmpl, err := template.New("base.html").Funcs(functions).ParseFS(assets, "templates/base.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse dashboard %s template: %w", name, err)
@@ -166,6 +191,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.events(w, r, true)
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/tools":
 		h.tools(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/benchmark":
+		h.benchmark(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dashboard/requests/"):
 		h.requestDetail(w, r, strings.TrimPrefix(r.URL.Path, "/dashboard/requests/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dashboard/tools/"):
@@ -175,6 +202,91 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (h *Handler) benchmark(w http.ResponseWriter, r *http.Request) {
+	data, err := h.loadBenchmark(r.Context(), r.URL.Query().Get("run"))
+	if err != nil {
+		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		return
+	}
+	h.render(w, "benchmark", "base", pageData{Title: "Benchmark", Active: "benchmark", Version: h.version, Benchmark: data})
+}
+
+func (h *Handler) loadBenchmark(ctx context.Context, requestedRunID string) (benchmarkData, error) {
+	var data benchmarkData
+	runs, err := h.db.QueryContext(ctx, `SELECT id,dataset_version,total_samples,completed_at FROM benchmark_runs WHERE status='COMPLETED' ORDER BY completed_at DESC LIMIT 20`)
+	if err != nil {
+		return data, err
+	}
+	defer runs.Close()
+	for runs.Next() {
+		var row benchmarkRunRow
+		var completed string
+		if err := runs.Scan(&row.ID, &row.DatasetVersion, &row.Total, &completed); err != nil {
+			return data, err
+		}
+		row.CompletedAt, err = time.Parse(time.RFC3339Nano, completed)
+		if err != nil {
+			return data, err
+		}
+		data.Runs = append(data.Runs, row)
+	}
+	if err := runs.Err(); err != nil {
+		return data, err
+	}
+	if len(data.Runs) == 0 {
+		return data, nil
+	}
+	selectedRunID := requestedRunID
+	if selectedRunID == "" {
+		selectedRunID = data.Runs[0].ID
+	}
+	err = h.db.QueryRowContext(ctx, `SELECT id,dataset_version,dataset_hash,config_hash,total_samples FROM benchmark_runs WHERE status='COMPLETED' AND id=?`, selectedRunID).Scan(&data.RunID, &data.DatasetVersion, &data.DatasetHash, &data.ConfigHash, &data.Total)
+	if err == sql.ErrNoRows {
+		return data, nil
+	}
+	if err != nil {
+		return data, err
+	}
+	data.Found = true
+	rows, err := h.db.QueryContext(ctx, `SELECT case_id,category,expected_detection,actual_detection,expected_decision,actual_decision,COALESCE(expected_rule,''),COALESCE(matched_rule,''),passed,latency_ns,safe_reason FROM benchmark_results WHERE benchmark_run_id=? ORDER BY case_id`, data.RunID)
+	if err != nil {
+		return data, err
+	}
+	defer rows.Close()
+	results := []benchmark.CaseResult{}
+	for rows.Next() {
+		var v benchmark.CaseResult
+		var expected sql.NullBool
+		var latency int64
+		if err := rows.Scan(&v.ID, &v.Category, &expected, &v.ActualDetection, &v.ExpectedDecision, &v.ActualDecision, &v.ExpectedRule, &v.MatchedRule, &v.Passed, &latency, &v.SafeReason); err != nil {
+			return data, err
+		}
+		if expected.Valid {
+			x := expected.Bool
+			v.ExpectedDetection = &x
+		}
+		v.Latency = time.Duration(latency)
+		results = append(results, v)
+		if !v.Passed {
+			data.Failures = append(data.Failures, v)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return data, err
+	}
+	data.Metrics = benchmark.Summarize(results)
+	byCategory := make(map[string][]benchmark.CaseResult)
+	for _, result := range results {
+		byCategory[result.Category] = append(byCategory[result.Category], result)
+	}
+	for _, name := range []string{benchmark.CategoryNormal, benchmark.CategoryPII, benchmark.CategorySecret, benchmark.CategoryDirect, benchmark.CategoryIndirect, benchmark.CategoryTool, benchmark.CategoryBypass} {
+		if results, ok := byCategory[name]; ok {
+			data.Categories = append(data.Categories, benchmarkCategory{Name: name, Metrics: benchmark.Summarize(results)})
+		}
+	}
+	return data, nil
 }
 
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request, partial bool) {
@@ -456,6 +568,15 @@ func formatScore(value any) string {
 		}
 	}
 	return "—"
+}
+
+// benchmarkRate keeps detection-only values honest for Tool Policy samples,
+// where a detection confusion matrix does not apply.
+func benchmarkRate(metrics benchmark.Metrics, value float64) string {
+	if metrics.Counts.TP+metrics.Counts.FP+metrics.Counts.TN+metrics.Counts.FN == 0 {
+		return "N/A"
+	}
+	return fmt.Sprintf("%.3f", value)
 }
 
 func decisionClass(value string) string {

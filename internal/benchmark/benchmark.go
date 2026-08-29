@@ -12,7 +12,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/config"
@@ -108,8 +107,6 @@ type Runner struct {
 	tools      config.ToolsConfig
 	configHash string
 }
-
-var sequence atomic.Uint64
 
 func Load(path string) (Dataset, error) {
 	data, err := os.ReadFile(path)
@@ -220,7 +217,8 @@ func (r *Runner) Run(ctx context.Context, dataset Dataset, seed int64, version s
 	if err != nil {
 		return Run{}, err
 	}
-	run := Run{ID: fmt.Sprintf("benchmark_%d", sequence.Add(1)), DatasetVersion: dataset.Version, DatasetHash: datasetHash, ConfigHash: r.configHash, ProviderMode: "internal", RandomSeed: seed, AgentGuardVersion: version, Status: "RUNNING", StartedAt: time.Now().UTC(), TotalSamples: len(dataset.Samples), ByCategory: map[string]Metrics{}}
+	startedAt := time.Now().UTC()
+	run := Run{ID: fmt.Sprintf("benchmark_%d", startedAt.UnixNano()), DatasetVersion: dataset.Version, DatasetHash: datasetHash, ConfigHash: r.configHash, ProviderMode: "internal", RandomSeed: seed, AgentGuardVersion: version, Status: "RUNNING", StartedAt: startedAt, TotalSamples: len(dataset.Samples), ByCategory: map[string]Metrics{}}
 	for _, sample := range dataset.Samples {
 		result := r.runCase(ctx, sample)
 		run.Results = append(run.Results, result)
@@ -313,6 +311,10 @@ func calculateMetrics(results []CaseResult) Metrics {
 	}
 	return metrics
 }
+
+// Summarize calculates presentation-safe aggregate metrics from persisted
+// case outcomes. It does not inspect Dataset input content.
+func Summarize(results []CaseResult) Metrics { return calculateMetrics(results) }
 
 func Persist(ctx context.Context, db *sql.DB, run Run) error {
 	tx, err := db.BeginTx(ctx, nil)

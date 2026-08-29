@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/audit"
+	"github.com/bitesdust/agentguard/internal/benchmark"
 	"github.com/bitesdust/agentguard/internal/config"
 	"github.com/bitesdust/agentguard/internal/detection"
 	"github.com/bitesdust/agentguard/internal/policy"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestDashboardOverviewEventsAndDetails(t *testing.T) {
-	handler, _, requestID, toolID, approvalID := testDashboard(t)
+	handler, _, requestID, toolID, approvalID, _ := testDashboard(t)
 	overview, err := handler.loadOverview(context.Background())
 	if err != nil {
 		t.Fatalf("load overview: %v", err)
@@ -61,8 +62,43 @@ func TestDashboardOverviewEventsAndDetails(t *testing.T) {
 	}
 }
 
+func TestDashboardBenchmarkShowsPersistedSafeResults(t *testing.T) {
+	handler, _, _, _, _, store := testDashboard(t)
+	expected := true
+	completed := time.Date(2026, 8, 29, 13, 0, 0, 0, time.UTC)
+	run := benchmark.Run{
+		ID: "benchmark_dashboard", DatasetVersion: "benchmark-v1", DatasetHash: "dataset-safe-hash", ConfigHash: "config-safe-hash", ProviderMode: "internal", RandomSeed: 1, AgentGuardVersion: "test", Status: "COMPLETED", StartedAt: completed.Add(-time.Second), CompletedAt: completed, TotalSamples: 3,
+		Results: []benchmark.CaseResult{
+			{ID: "normal-safe", Category: benchmark.CategoryNormal, ExpectedDetection: boolPointer(false), ExpectedDecision: policy.ActionPass, ActualDecision: policy.ActionPass, Passed: true, Latency: time.Millisecond},
+			{ID: "pii-safe", Category: benchmark.CategoryPII, ExpectedDetection: &expected, ExpectedDecision: policy.ActionRedact, ActualDecision: policy.ActionPass, Passed: false, Latency: 2 * time.Millisecond, SafeReason: "decision mismatch"},
+			{ID: "tool-safe", Category: benchmark.CategoryTool, ExpectedDecision: policy.ActionApproval, ActualDecision: policy.ActionApproval, Passed: true, Latency: time.Millisecond},
+		},
+	}
+	if err := benchmark.Persist(context.Background(), store.DB(), run); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/benchmark", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"benchmark-v1", "Category Metrics", "pii-safe", "decision mismatch", "N/A"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %q: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"raw-secret-value", "private prompt text", "provider-response-contents"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("dashboard leaked raw value %q", forbidden)
+		}
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
 func TestDashboardNotFoundAndStaticAsset(t *testing.T) {
-	handler, _, _, _, _ := testDashboard(t)
+	handler, _, _, _, _, _ := testDashboard(t)
 	for _, test := range []struct {
 		path string
 		code int
@@ -80,7 +116,7 @@ func TestDashboardNotFoundAndStaticAsset(t *testing.T) {
 }
 
 func TestDashboardApprovalButtonsUseExistingApprovalAPI(t *testing.T) {
-	handler, service, _, _, approvalID := testDashboard(t)
+	handler, service, _, _, approvalID, _ := testDashboard(t)
 	api := tools.NewHandler(service)
 
 	approve := httptest.NewRequest(http.MethodPost, "/api/approvals/"+approvalID+"/approve", nil)
@@ -114,7 +150,7 @@ func TestDashboardApprovalButtonsUseExistingApprovalAPI(t *testing.T) {
 	}
 }
 
-func testDashboard(t *testing.T) (*Handler, *tools.Service, string, string, string) {
+func testDashboard(t *testing.T) (*Handler, *tools.Service, string, string, string, *storage.Store) {
 	t.Helper()
 	ctx := context.Background()
 	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "dashboard.db"))
@@ -157,5 +193,5 @@ func testDashboard(t *testing.T) (*Handler, *tools.Service, string, string, stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	return handler, service, requestID, call.ID, approval.ID
+	return handler, service, requestID, call.ID, approval.ID, store
 }

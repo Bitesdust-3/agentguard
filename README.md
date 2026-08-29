@@ -31,11 +31,14 @@ Build a focused, explainable, and testable security project suitable for public 
 - Rule-based, feature-scored direct and basic indirect Prompt Injection detection. It is a deterministic MVP, not a claim of complete protection.
 - Input and output safety pipeline: `PASS`, `REDACT`, or `BLOCK` is applied before a provider request and before a provider response reaches the client.
 - Output Secret/PII guard with response redaction or safe blocking.
+- Configuration-driven Agent Tool Policy decisions using `PASS`, `APPROVAL`, and `BLOCK`.
+- Persisted single-step approval workflow and execution-state protection for five controlled Mock/Demo tools.
+
+The current Tool Executor is mock-only: it never reads or deletes real files, sends email, queries a database, runs shell commands, or contacts external systems.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- Agent tool policy engine.
 - Audit log and lightweight dashboard.
 - Security benchmark.
 
@@ -89,12 +92,12 @@ To run the test suite:
 go test ./...
 ```
 
-Prompt injection, output-side protections, tools, audit features, dashboard, benchmark, and real LLM providers are still planned work.
+Audit features, dashboard, benchmark, and real LLM providers are still planned work.
 
 ## Roadmap
 
 - **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** Prompt injection detection, output detection/policy, tool policy, audit, dashboard, benchmark, and one real OpenAI-compatible provider.
+- **Planned:** Audit, dashboard, benchmark, and one real OpenAI-compatible provider.
 - **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated.
 
 ## License

@@ -12,7 +12,7 @@ func TestHealth(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()
-	NewHandler("test", nil).ServeHTTP(response, request)
+	NewHandler("test", nil, nil).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusOK; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
@@ -36,7 +36,7 @@ func TestHealthRejectsOtherMethods(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/health", nil)
 	response := httptest.NewRecorder()
-	NewHandler("test", nil).ServeHTTP(response, request)
+	NewHandler("test", nil, nil).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusMethodNotAllowed; got != want {
 		t.Fatalf("status = %d, want %d", got, want)

@@ -20,6 +20,7 @@ type Config struct {
 	Provider  ProviderConfig  `yaml:"provider"`
 	Detection DetectionConfig `yaml:"detection"`
 	Policy    PolicyConfig    `yaml:"policy"`
+	Tools     ToolsConfig     `yaml:"tools"`
 }
 
 type ServerConfig struct {
@@ -67,6 +68,25 @@ type PolicyRuleWhen struct {
 	MinScore      float64 `yaml:"min_score"`
 }
 
+type ToolsConfig struct {
+	DefaultAction string           `yaml:"default_action"`
+	Rules         []ToolPolicyRule `yaml:"rules"`
+}
+
+type ToolPolicyRule struct {
+	ID     string        `yaml:"id"`
+	Match  ToolRuleMatch `yaml:"match"`
+	Action string        `yaml:"action"`
+}
+
+type ToolRuleMatch struct {
+	Name        string `yaml:"name"`
+	TargetType  string `yaml:"target_type"`
+	External    *bool  `yaml:"external"`
+	Destructive *bool  `yaml:"destructive"`
+	Sensitive   *bool  `yaml:"sensitive"`
+}
+
 // Default returns a safe local-development configuration.
 func Default() Config {
 	return Config{
@@ -98,6 +118,13 @@ func Default() Config {
 				{ID: "output.secret.redact.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.80}, Action: "REDACT"},
 				{ID: "output.pii.redact.v1", When: PolicyRuleWhen{DetectionType: "PII", MinScore: 0.80}, Action: "REDACT"},
 			},
+		}},
+		Tools: ToolsConfig{DefaultAction: "BLOCK", Rules: []ToolPolicyRule{
+			{ID: "tool.weather.read.v1", Match: ToolRuleMatch{Name: "weather.read"}, Action: "PASS"},
+			{ID: "tool.file.read.v1", Match: ToolRuleMatch{Name: "file.read"}, Action: "PASS"},
+			{ID: "tool.email.send.v1", Match: ToolRuleMatch{Name: "email.send", External: boolPtr(true)}, Action: "APPROVAL"},
+			{ID: "tool.database.query.v1", Match: ToolRuleMatch{Name: "database.query", Sensitive: boolPtr(true)}, Action: "APPROVAL"},
+			{ID: "tool.file.delete.v1", Match: ToolRuleMatch{Name: "file.delete", Destructive: boolPtr(true)}, Action: "BLOCK"},
 		}},
 	}
 }
@@ -152,7 +179,27 @@ func (c Config) Validate() error {
 	if err := validateTextPolicyConfig("policy.input", c.Policy.Input); err != nil {
 		return err
 	}
-	return validateTextPolicyConfig("policy.output", c.Policy.Output)
+	if err := validateTextPolicyConfig("policy.output", c.Policy.Output); err != nil {
+		return err
+	}
+	return validateToolsConfig(c.Tools)
+}
+
+func boolPtr(value bool) *bool { return &value }
+
+func validateToolsConfig(config ToolsConfig) error {
+	if config.DefaultAction != "PASS" && config.DefaultAction != "BLOCK" && config.DefaultAction != "APPROVAL" {
+		return fmt.Errorf("tools.default_action must be PASS, BLOCK, or APPROVAL")
+	}
+	for index, rule := range config.Rules {
+		if strings.TrimSpace(rule.ID) == "" || strings.TrimSpace(rule.Match.Name) == "" {
+			return fmt.Errorf("tools.rules[%d] requires id and match.name", index)
+		}
+		if rule.Action != "PASS" && rule.Action != "BLOCK" && rule.Action != "APPROVAL" {
+			return fmt.Errorf("tools.rules[%d].action must be PASS, BLOCK, or APPROVAL", index)
+		}
+	}
+	return nil
 }
 
 func validateTextPolicyConfig(name string, policy InputPolicyConfig) error {

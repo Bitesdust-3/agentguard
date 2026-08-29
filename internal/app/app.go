@@ -16,6 +16,7 @@ import (
 	"github.com/bitesdust/agentguard/internal/policy"
 	"github.com/bitesdust/agentguard/internal/provider"
 	"github.com/bitesdust/agentguard/internal/storage"
+	"github.com/bitesdust/agentguard/internal/tools"
 )
 
 const (
@@ -52,11 +53,12 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 		_ = store.Close()
 		return nil, err
 	}
+	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools))
 
 	return &Application{
 		Server: &http.Server{
 			Addr:              cfg.ListenAddr(),
-			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy)),
+			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy, outputDetector, outputPolicy), toolHandler),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       60 * time.Second,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -136,10 +138,13 @@ func (a *Application) Shutdown(ctx context.Context) error {
 }
 
 // NewHandler exposes only the infrastructure health endpoint in this stage.
-func NewHandler(version string, chatHandler http.Handler) http.Handler {
+func NewHandler(version string, chatHandler http.Handler, toolHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if chatHandler != nil {
 		mux.Handle("/v1/chat/completions", chatHandler)
+	}
+	if toolHandler != nil {
+		mux.Handle("/api/", toolHandler)
 	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

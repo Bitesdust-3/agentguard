@@ -62,3 +62,30 @@ policy:
           detection_type: PII
           min_score: 0.80
         action: REDACT
+
+tools:
+  default_action: BLOCK
+  rules:
+    - id: tool.weather.read.v1
+      match:
+        name: weather.read
+      action: PASS
+    - id: tool.file.read.v1
+      match:
+        name: file.read
+      action: PASS
+    - id: tool.email.send.v1
+      match:
+        name: email.send
+        external: true
+      action: APPROVAL
+    - id: tool.database.query.v1
+      match:
+        name: database.query
+        sensitive: true
+      action: APPROVAL
+    - id: tool.file.delete.v1
+      match:
+        name: file.delete
+        destructive: true
+      action: BLOCK

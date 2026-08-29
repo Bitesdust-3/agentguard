@@ -13,6 +13,12 @@ type migration struct {
 
 var migrations = []migration{
 	{version: 1},
+	{version: 2, statements: []string{
+		`CREATE TABLE tool_calls (id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, target_type TEXT NOT NULL, external INTEGER NOT NULL, destructive INTEGER NOT NULL, sensitive INTEGER NOT NULL, decision TEXT NOT NULL CHECK(decision IN ('PASS','BLOCK','APPROVAL')), state TEXT NOT NULL CHECK(state IN ('RECEIVED','EVALUATED','PASS','BLOCK','PENDING_APPROVAL','APPROVED','REJECTED','EXECUTED','FAILED')), policy_id TEXT NOT NULL, arguments_summary TEXT NOT NULL, result_summary TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE approvals (id TEXT PRIMARY KEY, tool_call_id TEXT NOT NULL UNIQUE REFERENCES tool_calls(id), status TEXT NOT NULL CHECK(status IN ('PENDING','APPROVED','REJECTED')), reason TEXT, requested_at TEXT NOT NULL, decided_at TEXT)`,
+		`CREATE INDEX idx_tool_calls_state_updated ON tool_calls(state, updated_at)`,
+		`CREATE INDEX idx_approvals_status_requested ON approvals(status, requested_at)`,
+	}},
 }
 
 // Migrate records schema versions in a single metadata table. Migration 1 is

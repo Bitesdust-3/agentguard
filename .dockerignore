@@ -1,0 +1,15 @@
+.git
+.github
+.env
+data
+bin
+coverage.out
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+Dockerfile*
+docker-compose*.yml
+README.md
+docs
+scripts

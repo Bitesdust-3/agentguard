@@ -1,10 +1,16 @@
 # Local environment configuration
 .env
+.env.*
+!.env.example
 
 # Go build and test artifacts
 bin/
 *.test
 coverage.out
+*.log
+.idea/
+.vscode/
+*.swp
 
 # Local SQLite runtime data
 data/

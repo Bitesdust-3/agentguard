@@ -1,0 +1,43 @@
+# Safe Docker configuration. Mock mode requires no API key or network access.
+server:
+  host: 0.0.0.0
+  port: 8080
+
+storage:
+  sqlite_path: /app/data/agentguard.db
+
+provider:
+  type: mock
+  model: mock-model
+  timeout_ms: 30000
+  api_key_env: AGENTGUARD_PROVIDER_API_KEY
+  base_url: ""
+
+detection:
+  pii: {enabled: true, threshold: 0.80}
+  secret: {enabled: true, threshold: 0.80}
+  prompt_injection: {enabled: true, threshold: 0.85}
+
+policy:
+  input:
+    default_action: PASS
+    rules:
+      - {id: input.secret.block.v1, when: {detection_type: SECRET, min_score: 0.98}, action: BLOCK}
+      - {id: input.secret.redact.v1, when: {detection_type: SECRET, min_score: 0.80}, action: REDACT}
+      - {id: input.pii.redact.v1, when: {detection_type: PII, min_score: 0.80}, action: REDACT}
+      - {id: input.prompt_injection.block.v1, when: {detection_type: PROMPT_INJECTION, min_score: 0.85}, action: BLOCK}
+  output:
+    default_action: PASS
+    rules:
+      - {id: output.secret.block.v1, when: {detection_type: SECRET, min_score: 0.98}, action: BLOCK}
+      - {id: output.secret.redact.v1, when: {detection_type: SECRET, min_score: 0.80}, action: REDACT}
+      - {id: output.pii.redact.v1, when: {detection_type: PII, min_score: 0.80}, action: REDACT}
+
+tools:
+  default_action: BLOCK
+  rules:
+    - {id: tool.weather.read.v1, match: {name: weather.read}, action: PASS}
+    - {id: tool.file.read.v1, match: {name: file.read}, action: PASS}
+    - {id: tool.email.send.v1, match: {name: email.send, external: true}, action: APPROVAL}
+    - {id: tool.database.query.v1, match: {name: database.query, sensitive: true}, action: APPROVAL}
+    - {id: tool.file.delete.v1, match: {name: file.delete, destructive: true}, action: BLOCK}

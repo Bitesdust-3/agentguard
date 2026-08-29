@@ -1,0 +1,6 @@
+# github.com/mattn/go-sqlite3 v1.14.50
+## explicit; go 1.21
+github.com/mattn/go-sqlite3
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3

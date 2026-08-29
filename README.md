@@ -1,153 +1,273 @@
 # AgentGuard
 
-AgentGuard is a lightweight AI agent security gateway and automated security evaluation platform for practical AI security and agent security engineering.
+AgentGuard is a lightweight AI agent security gateway and automated security evaluation platform. It places an explainable, auditable safety pipeline in front of OpenAI-compatible text chat and selected agent Tool Calls.
 
-> **Project status: Early Development**
+> **Status: v1.0.0**
 
-## Goal
+## Why AgentGuard
 
-Build a focused, explainable, and testable security project suitable for public GitHub presentation and security engineering practice. The project prioritizes maintainability and demonstrable security value over feature count.
+LLM applications need controls around both model traffic and agent actions. AgentGuard demonstrates a small, inspectable design that separates risk detection from policy decisions, minimizes sensitive audit data, and remains usable without an external model or API key.
 
-## Current Status
+## Core capabilities
 
-### Completed
+- OpenAI-style, non-streaming `POST /v1/chat/completions` gateway.
+- Deterministic local Mock Provider and one configurable OpenAI-compatible provider.
+- Rule-based Secret and PII detection with privacy-safe evidence and redaction.
+- Rule-based plus feature-scored direct and basic indirect Prompt Injection detection.
+- Independent input and output `PASS`, `REDACT`, and `BLOCK` policy enforcement.
+- Configuration-driven Tool Policy with `PASS`, `APPROVAL`, and `BLOCK` decisions.
+- Persisted approval workflow and mock-only Tool Executor.
+- Fail-closed SQLite audit persistence with Request/Tool correlation.
+- Local server-rendered Audit, Tool/Approval, and Benchmark dashboards.
+- Reproducible Security Benchmark runner using the same production Detector and Policy logic.
 
-- Public repository foundation and Git initialization.
-- Go module initialization.
-- Initial open-source documentation and configuration skeleton.
-- [v1.0 architecture and core-contract design freeze](docs/architecture-v1.md).
+The Mock Provider and Tool Executor perform no real AI inference or external action.
 
-### Implemented infrastructure
+## Architecture
 
-- YAML-backed local configuration with safe defaults.
-- SQLite connection bootstrap with foreign-key enforcement and versioned schema metadata.
-- `GET /health` JSON endpoint.
-- OpenAI-style, non-streaming `POST /v1/chat/completions` endpoint.
-- Deterministic local Mock Provider for gateway integration; it is not a real LLM.
-- Minimal OpenAI-Compatible Provider using the standard library HTTP client and a configured single upstream model.
-- Rule-based input Secret detection for a small set of credential-like formats.
-- Rule-based input PII detection for email addresses, Chinese mainland mobile numbers, and validated Chinese identity-card numbers.
-- Configured input policy enforcement with `PASS`, `REDACT`, and `BLOCK` decisions.
-- Privacy-minimized redaction before the provider is called; raw sensitive values are not retained in detection evidence.
-- Rule-based, feature-scored direct and basic indirect Prompt Injection detection. It is a deterministic MVP, not a claim of complete protection.
-- Input and output safety pipeline: `PASS`, `REDACT`, or `BLOCK` is applied before a provider request and before a provider response reaches the client.
-- Output Secret/PII guard with response redaction or safe blocking.
-- Configuration-driven Agent Tool Policy decisions using `PASS`, `APPROVAL`, and `BLOCK`.
-- Persisted single-step approval workflow and execution-state protection for five controlled Mock/Demo tools.
-- Privacy-minimized SQLite security audit trail for Chat requests, detections, policy decisions, Tool Calls, and approvals.
-- Stable Chat Request ID and Tool Call ID correlation across persisted audit records.
-- Fail-closed audit persistence for critical Chat and pre-execution Tool/Approval paths.
-- Local-admin `GET /api/audit/events` API with event, decision, detection, request, tool-call, and limit filters.
-- Lightweight local Security Dashboard with overview metrics, security-event filters, request/tool timelines, and Tool/Approval controls.
-- Server-rendered Go Templates with HTMX-enhanced event filtering, periodic overview refresh, and existing Approval API actions.
-- Deterministic Security Benchmark Runner that reuses production Detector, Policy, and Tool Policy logic.
-- Development-scale fixtures plus a 266-case Curated Benchmark v1 covering seven security categories, hard negatives, and boundary cases using fictional data.
-- Read-only Benchmark Dashboard view for the latest persisted run, including aggregate and per-category metrics, latency, reproducibility hashes, and privacy-safe failure summaries.
+```mermaid
+flowchart LR
+    Client --> Gateway
+    Gateway --> InputGuard[Input Detection]
+    InputGuard --> InputPolicy[Input Policy]
+    InputPolicy --> Provider[Mock or OpenAI-Compatible Provider]
+    Provider --> OutputGuard[Output Detection]
+    OutputGuard --> OutputPolicy[Output Policy]
+    OutputPolicy --> Client
+    Gateway --> Audit[(SQLite Audit)]
+    InputPolicy --> Audit
+    OutputPolicy --> Audit
 
-The current Tool Executor is mock-only: it never reads or deletes real files, sends email, queries a database, runs shell commands, or contacts external systems.
-- Graceful shutdown for `SIGINT` and `SIGTERM`.
-
-### Planned for v1.0
-
-- Final packaging and release validation.
-
-## Planned Technology Stack
-
-- Go and the standard library (`net/http`)
-- SQLite
-- YAML configuration
-- Go templates and HTMX
-- Go testing tools
-- Docker for integration, demo, and release workflows
-
-## Project Structure
-
-```text
-.
-├── cmd/        # Application entry point
-├── configs/    # Safe sample configuration
-├── docs/       # Project documentation
-├── internal/   # Application, gateway, detection, policy, provider, and storage packages
-├── tests/      # Future test assets and integration tests
-├── web/        # Future web templates and static assets
-├── .env.example
-├── .gitignore
-├── go.mod
-├── LICENSE
-└── README.md
+    ToolCall[Tool Call] --> ToolPolicy[Tool Policy]
+    ToolPolicy --> Approval
+    Approval --> MockExecutor[Mock Executor]
+    ToolPolicy --> Audit
+    Approval --> Audit
+    MockExecutor --> Audit
 ```
 
-## Quick Start
+Detector components report what was found. Policy components decide what to do. Critical Audit failures stop subsequent Provider or Tool execution.
 
-From the repository root:
+## Quick start
+
+### Local Mock mode
+
+Requirements: Go 1.27 and a C compiler for `go-sqlite3`.
 
 ```bash
-go run ./cmd/agentguard
+go run ./cmd/agentguard -config configs/config.example.yaml
 ```
 
-Then request `http://127.0.0.1:8080/health`.
-
-To exercise the local Mock Provider:
+In another terminal:
 
 ```bash
-curl --noproxy '*' -X POST http://127.0.0.1:8080/v1/chat/completions \
+curl --noproxy '*' --fail http://127.0.0.1:8080/health
+curl --noproxy '*' --fail -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello AgentGuard"}]}'
 ```
 
-To run the test suite:
+Mock mode is the default and requires neither network access nor an API key. Runtime SQLite data is written under the ignored `data/` directory.
+
+### Docker Compose
+
+Requirements: Docker with Compose v2.
 
 ```bash
-go test ./...
+docker compose up --build
 ```
 
-Open the local dashboard at `http://127.0.0.1:8080/dashboard`; the persisted Benchmark view is at `/dashboard/benchmark`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Mock mode remains the recommended key-free demo path.
+Open `http://127.0.0.1:8080/dashboard`. The Compose stack contains only AgentGuard and keeps SQLite data in the `agentguard-data` named volume. To use another host port, set `AGENTGUARD_PORT`, for example `AGENTGUARD_PORT=18080 docker compose up --build`.
 
-### OpenAI-Compatible Provider
+Stop the service without deleting persisted data:
 
-Mock mode remains the default and requires no network or API key. To use one real OpenAI-compatible upstream, set `provider.type` to `openai_compatible` and configure a service base URL, one fixed upstream model, a positive total timeout in milliseconds, and the API-key environment-variable name:
+```bash
+docker compose down
+```
+
+## Demo
+
+With AgentGuard running in Mock mode, generate a small set of fictional Chat and Tool events:
+
+```bash
+./scripts/demo.sh
+```
+
+The script demonstrates:
+
+1. Normal Chat → `PASS`
+2. Fictional email address → `REDACT`
+3. Prompt Injection → `BLOCK`
+4. `weather.read` → `PASS` and mock `EXECUTED`
+5. `email.send` → `APPROVAL`, approve, then mock `EXECUTED`
+6. `file.delete` → `BLOCK`
+7. Audit and Benchmark dashboard links
+
+For a non-default port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:18080 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
+
+## Dashboard
+
+- Overview: `/dashboard`
+- Security events: `/dashboard/events`
+- Tool Calls and approvals: `/dashboard/tools`
+- Latest persisted Benchmark: `/dashboard/benchmark`
+
+The Dashboard is a local administrative display over existing audit and benchmark data. It does not define core entities or policy behavior.
+
+## Security Benchmark
+
+Run the manually reviewed Curated Benchmark v1 with its fixed reproducibility seed:
+
+```bash
+go run ./cmd/benchmark \
+  -config configs/config.example.yaml \
+  -dataset tests/benchmark/benchmark-v1.yaml \
+  -seed 42
+```
+
+The dataset contains 266 fictional cases across seven evenly represented categories: normal, PII, Secret, direct Prompt Injection, indirect Prompt Injection, Tool misuse, and approval bypass. It includes hard negatives and boundary cases.
+
+Current default-policy result:
+
+| Metric | Result |
+| --- | ---: |
+| Samples | 266 |
+| Accuracy | 0.911 |
+| Precision | 0.950 |
+| Recall | 0.854 |
+| False Positive Rate | 0.040 |
+| False Negative Rate | 0.146 |
+| Decision Accuracy | 0.929 |
+| Added Latency (Docker verification run) | Average 23.408 µs; P50 25.328 µs; P95 56.565 µs |
+
+Latency depends on the host and is measured on each run. The result is not presented as state of the art. Known misses and false positives remain visible: some paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type.
+
+## Configuration
+
+The local sample is [`configs/config.example.yaml`](configs/config.example.yaml); Docker uses [`configs/config.docker.yaml`](configs/config.docker.yaml) solely to listen on `0.0.0.0` and store SQLite data under `/app/data`.
+
+### Mock Provider
+
+```yaml
+provider:
+  type: mock
+  model: mock-model
+  timeout_ms: 30000
+  api_key_env: AGENTGUARD_PROVIDER_API_KEY
+  base_url: ""
+```
+
+### OpenAI-compatible Provider
+
+Change only the local configuration and inject the credential through the environment:
 
 ```yaml
 provider:
   type: openai_compatible
   base_url: https://api.example.invalid
-  model: your-model-name
+  model: your-fixed-upstream-model
   timeout_ms: 30000
   api_key_env: AGENTGUARD_PROVIDER_API_KEY
 ```
 
-Then provide the key only through the environment, never YAML:
-
 ```bash
-export AGENTGUARD_PROVIDER_API_KEY=your-api-key
-go run ./cmd/agentguard -config configs/config.example.yaml
+export AGENTGUARD_PROVIDER_API_KEY='your-api-key'
+go run ./cmd/agentguard -config /path/to/your-local-config.yaml
 ```
 
-The configured model is always used upstream; the client-facing `model` field cannot select another deployment. The provider appends `/v1/chat/completions` to `base_url` and supports only non-streaming text Chat Completions with `system`, `user`, and `assistant` messages. Streaming, model routing, automatic fallback/retry, forwarded Tool/Function Calling, and multimodal requests are not supported. Provider errors are converted to safe AgentGuard errors without returning upstream bodies, credentials, account details, or provider request identifiers.
+Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard appends `/v1/chat/completions` to the configured service base URL, always uses the configured upstream model, and returns sanitized upstream errors.
 
-Run the development Benchmark dataset with:
+## API
 
-```bash
-go run ./cmd/benchmark -dataset tests/benchmark/development.yaml
+### Gateway and health
+
+- `GET /health`
+- `POST /v1/chat/completions` — minimal non-streaming text subset with `model` and `messages` (`system`, `user`, `assistant`)
+
+### Tool and approval
+
+- `POST /api/tool-calls`
+- `GET /api/tool-calls/{id}`
+- `GET /api/approvals`
+- `POST /api/approvals/{id}/approve`
+- `POST /api/approvals/{id}/reject`
+
+Tool input fields are `tool_name`, `arguments`, `target_type`, `external`, `destructive`, and `sensitive`. Clients cannot submit their own security decision.
+
+### Audit and Dashboard
+
+- `GET /api/audit/events` — optional filters: `event_type`, `decision`, `detection_type`, `request_id`, `tool_call_id`, and `limit` (1–100)
+- `GET /dashboard`
+- `GET /dashboard/events`
+- `GET /dashboard/tools`
+- `GET /dashboard/benchmark`
+
+These are local-admin endpoints in v1.0 and have no authentication layer.
+
+## Security model
+
+- Detection and policy decisions are separate, deterministic components.
+- Scores and confidence use the `[0,1]` range; stable rule IDs make decisions explainable.
+- Input policy runs before Provider access; output policy runs before data reaches the client.
+- Tool policy and required Audit persistence run before mock execution.
+- Secret/PII evidence, prompts, Provider responses, and Tool arguments are not persisted in full.
+- Critical Audit persistence is fail-closed. It must never turn a blocked operation into an allowed one.
+- Unknown YAML fields, unsupported providers/actions, and invalid thresholds fail explicitly.
+
+## Technology stack
+
+- Go 1.27, `net/http`, Go Templates, and HTMX
+- SQLite with `go-sqlite3`
+- YAML configuration
+- Go test tooling and race detector
+- Docker and Docker Compose
+- GitHub Actions
+
+## Project structure
+
+```text
+.
+├── cmd/                 # AgentGuard and Benchmark entry points
+├── configs/             # Local and Docker-safe configuration examples
+├── docs/                # Frozen v1 architecture contract
+├── internal/            # App, gateway, detection, policy, provider, tools, audit, benchmark, web
+├── scripts/             # Small reproducible demo
+├── tests/benchmark/     # Development and curated fictional datasets
+├── Dockerfile
+├── docker-compose.yml
+└── README.md
 ```
 
-It uses fictional samples only and records privacy-minimized results; the current dataset is for development validation, not final public benchmark claims.
+## Known limitations
 
-Run the manually reviewed, fictional Curated Benchmark v1 with a fixed seed:
+- Prompt Injection defense is a rule-and-feature-scoring MVP and cannot cover every natural-language variant.
+- Basic indirect Prompt Injection coverage is limited; AgentGuard does not fetch or isolate external documents.
+- The Tool Executor is mock-only; it performs no real Tool action.
+- There is no authentication or RBAC, so the service should not be exposed directly to an untrusted network.
+- The real provider supports only non-streaming text Chat Completions. There is no streaming, multimodal input, Tool/Function Calling forwarding, multi-provider routing, automatic retry, or fallback.
+- SQLite is a single-node store.
+- A local transaction cannot roll back a real external side effect if a future real Tool adapter succeeds before a final Audit write fails.
+
+## Future work
+
+- Stronger Prompt Injection detection and more complete indirect-injection defenses
+- MCP and other agent-protocol support
+- Real Tool adapters
+- Authentication and RBAC
+- Streaming
+- Multiple Provider support
+- Idempotency and an Outbox pattern for real external side effects
+
+These items are outside the frozen v1.0 feature scope.
+
+## Development
 
 ```bash
-go run ./cmd/benchmark -dataset tests/benchmark/benchmark-v1.yaml -seed 42
+go test -count=1 ./...
+go vet ./...
 ```
 
-The 266 cases are evenly distributed across normal, PII, Secret, direct and indirect Prompt Injection, Tool misuse, and approval-bypass scenarios. They include hard negatives and boundary cases and execute the production Detector, Policy, and Tool Policy implementations. With the default configuration and version `dev`, the current measured detection results are Accuracy `0.911`, Precision `0.950`, Recall `0.854`, FPR `0.040`, and FNR `0.146`; Decision Accuracy is `0.929`. Latency varies by machine and run, so the CLI and Dashboard show the measured average, P50, and P95 rather than a fixed claim.
-
-These results expose real limitations instead of tuning them away: paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type. AgentGuard does not claim state-of-the-art, comprehensive, enterprise-grade, or 100% safe detection.
-
-## Roadmap
-
-- **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** Final packaging and release validation.
-- **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated. For future Tools with real external side effects, a final Audit persistence failure after the external action cannot be rolled back by a local SQLite transaction; production designs may consider idempotent external operations, Outbox, or Workflow patterns.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the concise contribution checklist.
 
 ## License
 

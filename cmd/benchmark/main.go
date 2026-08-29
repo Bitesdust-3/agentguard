@@ -11,7 +11,7 @@ import (
 	"github.com/bitesdust/agentguard/internal/storage"
 )
 
-const version = "dev"
+const version = "v1.0.0"
 
 func main() {
 	configPath := flag.String("config", "", "path to AgentGuard YAML configuration")

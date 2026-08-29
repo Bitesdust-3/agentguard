@@ -15,9 +15,11 @@ import (
 
 // Config contains only the settings implemented in the current stage.
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Provider ProviderConfig `yaml:"provider"`
+	Server    ServerConfig    `yaml:"server"`
+	Storage   StorageConfig   `yaml:"storage"`
+	Provider  ProviderConfig  `yaml:"provider"`
+	Detection DetectionConfig `yaml:"detection"`
+	Policy    PolicyConfig    `yaml:"policy"`
 }
 
 type ServerConfig struct {
@@ -33,6 +35,36 @@ type ProviderConfig struct {
 	Type string `yaml:"type"`
 }
 
+type DetectionConfig struct {
+	PII    DetectorConfig `yaml:"pii"`
+	Secret DetectorConfig `yaml:"secret"`
+}
+
+type DetectorConfig struct {
+	Enabled   bool    `yaml:"enabled"`
+	Threshold float64 `yaml:"threshold"`
+}
+
+type PolicyConfig struct {
+	Input InputPolicyConfig `yaml:"input"`
+}
+
+type InputPolicyConfig struct {
+	DefaultAction string       `yaml:"default_action"`
+	Rules         []PolicyRule `yaml:"rules"`
+}
+
+type PolicyRule struct {
+	ID     string         `yaml:"id"`
+	When   PolicyRuleWhen `yaml:"when"`
+	Action string         `yaml:"action"`
+}
+
+type PolicyRuleWhen struct {
+	DetectionType string  `yaml:"detection_type"`
+	MinScore      float64 `yaml:"min_score"`
+}
+
 // Default returns a safe local-development configuration.
 func Default() Config {
 	return Config{
@@ -44,6 +76,18 @@ func Default() Config {
 			SQLitePath: "data/agentguard.db",
 		},
 		Provider: ProviderConfig{Type: "mock"},
+		Detection: DetectionConfig{
+			PII:    DetectorConfig{Enabled: true, Threshold: 0.80},
+			Secret: DetectorConfig{Enabled: true, Threshold: 0.80},
+		},
+		Policy: PolicyConfig{Input: InputPolicyConfig{
+			DefaultAction: "PASS",
+			Rules: []PolicyRule{
+				{ID: "input.secret.block.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.98}, Action: "BLOCK"},
+				{ID: "input.secret.redact.v1", When: PolicyRuleWhen{DetectionType: "SECRET", MinScore: 0.80}, Action: "REDACT"},
+				{ID: "input.pii.redact.v1", When: PolicyRuleWhen{DetectionType: "PII", MinScore: 0.80}, Action: "REDACT"},
+			},
+		}},
 	}
 }
 
@@ -85,7 +129,41 @@ func (c Config) Validate() error {
 	if c.Provider.Type != "mock" {
 		return fmt.Errorf("provider.type must be mock")
 	}
+	if err := validateDetectorConfig("detection.pii", c.Detection.PII); err != nil {
+		return err
+	}
+	if err := validateDetectorConfig("detection.secret", c.Detection.Secret); err != nil {
+		return err
+	}
+	if !validTextPolicyAction(c.Policy.Input.DefaultAction) {
+		return fmt.Errorf("policy.input.default_action must be PASS, REDACT, or BLOCK")
+	}
+	for index, rule := range c.Policy.Input.Rules {
+		if strings.TrimSpace(rule.ID) == "" {
+			return fmt.Errorf("policy.input.rules[%d].id must not be empty", index)
+		}
+		if rule.When.DetectionType != "PII" && rule.When.DetectionType != "SECRET" {
+			return fmt.Errorf("policy.input.rules[%d].when.detection_type must be PII or SECRET", index)
+		}
+		if rule.When.MinScore < 0 || rule.When.MinScore > 1 {
+			return fmt.Errorf("policy.input.rules[%d].when.min_score must be between 0 and 1", index)
+		}
+		if !validTextPolicyAction(rule.Action) {
+			return fmt.Errorf("policy.input.rules[%d].action must be PASS, REDACT, or BLOCK", index)
+		}
+	}
 	return nil
+}
+
+func validateDetectorConfig(name string, config DetectorConfig) error {
+	if config.Threshold < 0 || config.Threshold > 1 {
+		return fmt.Errorf("%s.threshold must be between 0 and 1", name)
+	}
+	return nil
+}
+
+func validTextPolicyAction(action string) bool {
+	return action == "PASS" || action == "REDACT" || action == "BLOCK"
 }
 
 // ListenAddr returns the configured host and port in a form accepted by

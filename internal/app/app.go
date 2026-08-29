@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/config"
+	"github.com/bitesdust/agentguard/internal/detection"
 	"github.com/bitesdust/agentguard/internal/gateway"
+	"github.com/bitesdust/agentguard/internal/policy"
 	"github.com/bitesdust/agentguard/internal/provider"
 	"github.com/bitesdust/agentguard/internal/storage"
 )
@@ -38,17 +40,50 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 		_ = store.Close()
 		return nil, err
 	}
+	inputDetector := newInputDetector(cfg.Detection)
+	inputPolicy, err := newInputPolicy(cfg.Policy.Input)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 
 	return &Application{
 		Server: &http.Server{
 			Addr:              cfg.ListenAddr(),
-			Handler:           NewHandler(version, gateway.New(chatProvider)),
+			Handler:           NewHandler(version, gateway.New(chatProvider, inputDetector, inputPolicy)),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       60 * time.Second,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},
 		store: store,
 	}, nil
+}
+
+func newInputDetector(cfg config.DetectionConfig) *detection.Engine {
+	detectors := make([]detection.Detector, 0, 2)
+	thresholds := make(map[detection.DetectionType]float64, 2)
+	if cfg.PII.Enabled {
+		detectors = append(detectors, detection.NewPIIDetector())
+		thresholds[detection.DetectionTypePII] = cfg.PII.Threshold
+	}
+	if cfg.Secret.Enabled {
+		detectors = append(detectors, detection.NewSecretDetector())
+		thresholds[detection.DetectionTypeSecret] = cfg.Secret.Threshold
+	}
+	return detection.NewEngine(detectors, thresholds)
+}
+
+func newInputPolicy(cfg config.InputPolicyConfig) (*policy.Engine, error) {
+	rules := make([]policy.Rule, 0, len(cfg.Rules))
+	for _, rule := range cfg.Rules {
+		rules = append(rules, policy.Rule{
+			ID:            rule.ID,
+			DetectionType: detection.DetectionType(rule.When.DetectionType),
+			MinScore:      rule.When.MinScore,
+			Action:        policy.Action(rule.Action),
+		})
+	}
+	return policy.NewEngine(policy.Config{DefaultAction: policy.Action(cfg.DefaultAction), Rules: rules})
 }
 
 func newProvider(cfg config.ProviderConfig) (provider.Provider, error) {

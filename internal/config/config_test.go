@@ -75,3 +75,42 @@ func TestLoadRejectsUnknownProvider(t *testing.T) {
 		t.Fatalf("Load() error = %v, want provider.type error", err)
 	}
 }
+
+func TestLoadRejectsInvalidInputPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		contents string
+		want     string
+	}{
+		{
+			name:     "invalid action",
+			contents: "policy:\n  input:\n    default_action: APPROVAL\n",
+			want:     "default_action",
+		},
+		{
+			name:     "invalid score",
+			contents: "policy:\n  input:\n    rules:\n      - id: invalid\n        when:\n          detection_type: SECRET\n          min_score: 1.1\n        action: BLOCK\n",
+			want:     "min_score",
+		},
+		{
+			name:     "invalid detector threshold",
+			contents: "detection:\n  pii:\n    threshold: -0.1\n",
+			want:     "detection.pii.threshold",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(test.contents), 0o600); err != nil {
+				t.Fatalf("write configuration: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}

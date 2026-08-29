@@ -8,3 +8,31 @@ storage:
 
 provider:
   type: mock
+
+detection:
+  pii:
+    enabled: true
+    threshold: 0.80
+  secret:
+    enabled: true
+    threshold: 0.80
+
+policy:
+  input:
+    default_action: PASS
+    rules:
+      - id: input.secret.block.v1
+        when:
+          detection_type: SECRET
+          min_score: 0.98
+        action: BLOCK
+      - id: input.secret.redact.v1
+        when:
+          detection_type: SECRET
+          min_score: 0.80
+        action: REDACT
+      - id: input.pii.redact.v1
+        when:
+          detection_type: PII
+          min_score: 0.80
+        action: REDACT

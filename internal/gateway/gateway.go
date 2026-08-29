@@ -3,27 +3,40 @@
 package gateway
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bitesdust/agentguard/internal/detection"
+	"github.com/bitesdust/agentguard/internal/policy"
 	"github.com/bitesdust/agentguard/internal/provider"
 )
 
 const maxRequestBodyBytes int64 = 1 << 20 // 1 MiB
 
 type Handler struct {
-	provider provider.Provider
-	now      func() time.Time
+	provider     provider.Provider
+	detector     detection.Detector
+	inputPolicy  *policy.Engine
+	now          func() time.Time
+	newRequestID func() string
 }
 
-func New(chatProvider provider.Provider) *Handler {
+func New(chatProvider provider.Provider, detector detection.Detector, inputPolicy *policy.Engine) *Handler {
 	return &Handler{
-		provider: chatProvider,
-		now:      time.Now,
+		provider:     chatProvider,
+		detector:     detector,
+		inputPolicy:  inputPolicy,
+		now:          time.Now,
+		newRequestID: newRequestID,
 	}
 }
 
@@ -56,6 +69,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, validationErr.code, validationErr.message)
 		return
 	}
+	requestID := h.newRequestID()
+	w.Header().Set("X-AgentGuard-Request-ID", requestID)
+	securedMessages, decision := h.secureMessages(r.Context(), requestID, request.Messages)
+	request.Messages = securedMessages
+	if decision.Decision == policy.ActionBlock {
+		writeSecurityBlocked(w, decision)
+		return
+	}
 
 	response, err := h.provider.Chat(r.Context(), request)
 	if err != nil {
@@ -82,6 +103,43 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			TotalTokens:      response.Usage.TotalTokens,
 		},
 	})
+}
+
+func (h *Handler) secureMessages(ctx context.Context, requestID string, messages []provider.ChatMessage) ([]provider.ChatMessage, policy.Decision) {
+	secured := append([]provider.ChatMessage(nil), messages...)
+	if h.detector == nil || h.inputPolicy == nil {
+		return secured, policy.Decision{Decision: policy.ActionPass}
+	}
+
+	resultsByMessage := make([][]detection.DetectionResult, len(messages))
+	var results []detection.DetectionResult
+	for index, message := range messages {
+		messageResults := h.detector.Detect(ctx, detection.Input{
+			SubjectType: detection.SubjectTypeRequest,
+			SubjectID:   requestID,
+			Source:      detection.SourceInput,
+			Text:        message.Content,
+		})
+		for resultIndex := range messageResults {
+			messageResults[resultIndex].Metadata["message_index"] = strconv.Itoa(index)
+		}
+		resultsByMessage[index] = messageResults
+		results = append(results, messageResults...)
+	}
+
+	decision := h.inputPolicy.Evaluate(detection.SubjectTypeRequest, requestID, results)
+	if decision.Decision != policy.ActionRedact {
+		return secured, decision
+	}
+	for index, messageResults := range resultsByMessage {
+		secured[index].Content, decision.Redactions = appendRedactions(secured[index].Content, messageResults, decision.Redactions)
+	}
+	return secured, decision
+}
+
+func appendRedactions(text string, results []detection.DetectionResult, existing []detection.Redaction) (string, []detection.Redaction) {
+	redacted, redactions := detection.Redact(text, results)
+	return redacted, append(existing, redactions...)
 }
 
 type chatCompletionRequestDTO struct {
@@ -177,15 +235,41 @@ type errorResponseDTO struct {
 }
 
 type apiErrorDTO struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code"`
+	Message       string `json:"message"`
+	Type          string `json:"type"`
+	Code          string `json:"code"`
+	Decision      string `json:"decision,omitempty"`
+	DetectionType string `json:"detection_type,omitempty"`
+	RuleID        string `json:"rule_id,omitempty"`
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorResponseDTO{
 		Error: apiErrorDTO{Message: message, Type: "invalid_request_error", Code: code},
 	})
+}
+
+func writeSecurityBlocked(w http.ResponseWriter, decision policy.Decision) {
+	detectionType := ""
+	if len(decision.MatchedRules) > 0 {
+		if strings.HasPrefix(decision.MatchedRules[0], "secret.") {
+			detectionType = string(detection.DetectionTypeSecret)
+		} else if strings.HasPrefix(decision.MatchedRules[0], "pii.") {
+			detectionType = string(detection.DetectionTypePII)
+		}
+	}
+	ruleID := ""
+	if len(decision.MatchedRules) > 0 {
+		ruleID = decision.MatchedRules[0]
+	}
+	writeJSON(w, http.StatusForbidden, errorResponseDTO{Error: apiErrorDTO{
+		Message:       "request blocked by AgentGuard security policy",
+		Type:          "security_error",
+		Code:          "security_blocked",
+		Decision:      string(policy.ActionBlock),
+		DetectionType: detectionType,
+		RuleID:        ruleID,
+	}})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -195,3 +279,11 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 var _ http.Handler = (*Handler)(nil)
+
+func newRequestID() string {
+	var value [12]byte
+	if _, err := rand.Read(value[:]); err == nil {
+		return "req_" + hex.EncodeToString(value[:])
+	}
+	return fmt.Sprintf("req_%d", time.Now().UTC().UnixNano())
+}

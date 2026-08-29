@@ -10,13 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitesdust/agentguard/internal/detection"
+	"github.com/bitesdust/agentguard/internal/policy"
 	"github.com/bitesdust/agentguard/internal/provider"
 )
 
 func TestChatCompletions(t *testing.T) {
 	t.Parallel()
 
-	handler := New(provider.NewMock())
+	handler := newTestHandler(provider.NewMock())
 	handler.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{
 		"model":"mock-model",
@@ -66,7 +68,7 @@ func TestChatCompletionsErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(test.method, "/v1/chat/completions", strings.NewReader(test.body))
 			response := httptest.NewRecorder()
-			New(provider.NewMock()).ServeHTTP(response, request)
+			newTestHandler(provider.NewMock()).ServeHTTP(response, request)
 
 			if got := response.Code; got != test.wantStatus {
 				t.Fatalf("status = %d, want %d", got, test.wantStatus)
@@ -88,7 +90,7 @@ func TestChatCompletionsRejectsLargeBody(t *testing.T) {
 	body := `{"model":"mock","messages":[{"role":"user","content":"` + strings.Repeat("a", int(maxRequestBodyBytes)) + `"}]}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	response := httptest.NewRecorder()
-	New(provider.NewMock()).ServeHTTP(response, request)
+	newTestHandler(provider.NewMock()).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusRequestEntityTooLarge; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
@@ -100,7 +102,7 @@ func TestChatCompletionsPropagatesProviderFailure(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"mock","messages":[{"role":"user","content":"hi"}]}`))
 	response := httptest.NewRecorder()
-	New(failingProvider{}).ServeHTTP(response, request)
+	newTestHandler(failingProvider{}).ServeHTTP(response, request)
 
 	if got, want := response.Code, http.StatusBadGateway; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
@@ -112,6 +114,103 @@ func TestChatCompletionsPropagatesProviderFailure(t *testing.T) {
 	if got, want := body.Error.Code, "provider_error"; got != want {
 		t.Fatalf("code = %q, want %q", got, want)
 	}
+}
+
+func TestChatCompletionsRedactsBeforeProvider(t *testing.T) {
+	t.Parallel()
+
+	capture := &recordingProvider{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"mock","messages":[{"role":"user","content":"contact demo.user@example.test"}]}`))
+	response := httptest.NewRecorder()
+
+	newTestHandler(capture).ServeHTTP(response, request)
+
+	if got, want := response.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if capture.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", capture.calls)
+	}
+	got := capture.request.Messages[0].Content
+	if strings.Contains(got, "demo.user@example.test") || !strings.Contains(got, "[REDACTED_EMAIL]") {
+		t.Fatalf("provider received %q, want only redacted email", got)
+	}
+}
+
+func TestChatCompletionsBlocksBeforeProvider(t *testing.T) {
+	t.Parallel()
+
+	capture := &recordingProvider{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"mock","messages":[{"role":"user","content":"postgres://demo:fictional-password@example.invalid/agentguard"}]}`))
+	response := httptest.NewRecorder()
+
+	newTestHandler(capture).ServeHTTP(response, request)
+
+	if got, want := response.Code, http.StatusForbidden; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if capture.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", capture.calls)
+	}
+	var body errorResponseDTO
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if body.Error.Code != "security_blocked" || body.Error.Decision != "BLOCK" || body.Error.RuleID != "secret.database_url.v1" {
+		t.Fatalf("unexpected blocked response: %+v", body.Error)
+	}
+}
+
+func TestChatCompletionsInspectsEveryMessage(t *testing.T) {
+	t.Parallel()
+
+	capture := &recordingProvider{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"mock","messages":[{"role":"system","content":"contact demo.user@example.test"},{"role":"user","content":"normal question"}]}`))
+	response := httptest.NewRecorder()
+
+	newTestHandler(capture).ServeHTTP(response, request)
+
+	if got, want := response.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if got := capture.request.Messages[0].Content; got != "contact [REDACTED_EMAIL]" {
+		t.Fatalf("system message = %q, want redacted", got)
+	}
+	if got := capture.request.Messages[1].Content; got != "normal question" {
+		t.Fatalf("user message = %q, want unchanged", got)
+	}
+}
+
+func newTestHandler(chatProvider provider.Provider) *Handler {
+	inputPolicy, err := policy.NewEngine(policy.Config{
+		DefaultAction: policy.ActionPass,
+		Rules: []policy.Rule{
+			{ID: "input.secret.block.v1", DetectionType: detection.DetectionTypeSecret, MinScore: 0.98, Action: policy.ActionBlock},
+			{ID: "input.secret.redact.v1", DetectionType: detection.DetectionTypeSecret, MinScore: 0.80, Action: policy.ActionRedact},
+			{ID: "input.pii.redact.v1", DetectionType: detection.DetectionTypePII, MinScore: 0.80, Action: policy.ActionRedact},
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return New(chatProvider, detection.NewEngine([]detection.Detector{
+		detection.NewSecretDetector(),
+		detection.NewPIIDetector(),
+	}, map[detection.DetectionType]float64{
+		detection.DetectionTypeSecret: 0.80,
+		detection.DetectionTypePII:    0.80,
+	}), inputPolicy)
+}
+
+type recordingProvider struct {
+	calls   int
+	request provider.ChatRequest
+}
+
+func (p *recordingProvider) Chat(_ context.Context, request provider.ChatRequest) (provider.ChatResponse, error) {
+	p.calls++
+	p.request = request
+	return provider.ChatResponse{ID: "recorded", Model: request.Model, Message: provider.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}, nil
 }
 
 type failingProvider struct{}

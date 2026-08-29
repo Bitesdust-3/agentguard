@@ -17,8 +17,6 @@ Build a focused, explainable, and testable security project suitable for public 
 - Initial open-source documentation and configuration skeleton.
 - [v1.0 architecture and core-contract design freeze](docs/architecture-v1.md).
 
-No AgentGuard security business capability has been implemented yet.
-
 ### Implemented infrastructure
 
 - YAML-backed local configuration with safe defaults.
@@ -26,14 +24,16 @@ No AgentGuard security business capability has been implemented yet.
 - `GET /health` JSON endpoint.
 - OpenAI-style, non-streaming `POST /v1/chat/completions` endpoint.
 - Deterministic local Mock Provider for gateway integration; it is not a real LLM.
+- Rule-based input Secret detection for a small set of credential-like formats.
+- Rule-based input PII detection for email addresses, Chinese mainland mobile numbers, and validated Chinese identity-card numbers.
+- Configured input policy enforcement with `PASS`, `REDACT`, and `BLOCK` decisions.
+- Privacy-minimized redaction before the provider is called; raw sensitive values are not retained in detection evidence.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- OpenAI-compatible API gateway.
-- Secret and PII detection.
 - Prompt injection detection.
-- Input and output security policies.
+- Output detection and output security policy enforcement.
 - Agent tool policy engine.
 - Audit log and lightweight dashboard.
 - Security benchmark.
@@ -51,10 +51,10 @@ No AgentGuard security business capability has been implemented yet.
 
 ```text
 .
-├── cmd/        # Future application entry points
-├── configs/    # Future non-sensitive configuration files
+├── cmd/        # Application entry point
+├── configs/    # Safe sample configuration
 ├── docs/       # Project documentation
-├── internal/   # Future internal packages
+├── internal/   # Application, gateway, detection, policy, provider, and storage packages
 ├── tests/      # Future test assets and integration tests
 ├── web/        # Future web templates and static assets
 ├── .env.example
@@ -63,8 +63,6 @@ No AgentGuard security business capability has been implemented yet.
 ├── LICENSE
 └── README.md
 ```
-
-The directories above are intentionally empty during this initialization stage. No placeholder files have been added.
 
 ## Quick Start
 
@@ -90,12 +88,12 @@ To run the test suite:
 go test ./...
 ```
 
-Security detection, policy decisions, tools, audit features, dashboard, benchmark, and real LLM providers are still planned work.
+Prompt injection, output-side protections, tools, audit features, dashboard, benchmark, and real LLM providers are still planned work.
 
 ## Roadmap
 
-- **Completed:** Repository foundation (Phase 0).
-- **Planned:** Deliver the approved v1.0 scope incrementally with tests and documentation.
+- **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
+- **Planned:** Prompt injection detection, output detection/policy, tool policy, audit, dashboard, benchmark, and one real OpenAI-compatible provider.
 - **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated.
 
 ## License

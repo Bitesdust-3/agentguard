@@ -1,0 +1,174 @@
+// Package policy maps detector facts and fixed configuration to a security
+// action. It intentionally never reads or scans raw request content.
+package policy
+
+import (
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/bitesdust/agentguard/internal/detection"
+)
+
+type Action string
+
+const (
+	ActionPass     Action = "PASS"
+	ActionRedact   Action = "REDACT"
+	ActionBlock    Action = "BLOCK"
+	ActionApproval Action = "APPROVAL"
+)
+
+type Stage string
+
+const (
+	StageInput  Stage = "INPUT"
+	StageOutput Stage = "OUTPUT"
+	StageTool   Stage = "TOOL"
+)
+
+type Rule struct {
+	ID            string
+	DetectionType detection.DetectionType
+	MinScore      float64
+	Action        Action
+}
+
+type Config struct {
+	DefaultAction Action
+	Rules         []Rule
+}
+
+type Decision struct {
+	ID               string                `json:"id"`
+	SubjectType      detection.SubjectType `json:"subject_type"`
+	SubjectID        string                `json:"subject_id"`
+	Stage            Stage                 `json:"stage"`
+	Decision         Action                `json:"decision"`
+	PolicyID         string                `json:"policy_id"`
+	Reason           string                `json:"reason"`
+	RiskScore        float64               `json:"risk_score"`
+	MatchedRules     []string              `json:"matched_rules"`
+	Redactions       []detection.Redaction `json:"redactions,omitempty"`
+	ApprovalRequired bool                  `json:"approval_required"`
+	CreatedAt        time.Time             `json:"created_at"`
+}
+
+type Engine struct {
+	config Config
+}
+
+func NewEngine(config Config) (*Engine, error) {
+	if err := Validate(config); err != nil {
+		return nil, err
+	}
+	return &Engine{config: config}, nil
+}
+
+// Evaluate chooses the first matching configured rule. Rules are evaluated in
+// YAML order, making precedence explicit and easy to audit.
+func (e *Engine) Evaluate(subjectType detection.SubjectType, subjectID string, results []detection.DetectionResult) Decision {
+	decision := Decision{
+		ID:               nextID(),
+		SubjectType:      subjectType,
+		SubjectID:        subjectID,
+		Stage:            StageInput,
+		Decision:         e.config.DefaultAction,
+		PolicyID:         "input.default.v1",
+		Reason:           "no input policy rule matched",
+		RiskScore:        maxRiskScore(results),
+		MatchedRules:     matchingDetectorRules(results),
+		ApprovalRequired: false,
+		CreatedAt:        time.Now().UTC(),
+	}
+	for _, rule := range e.config.Rules {
+		if matches(rule, results) {
+			decision.Decision = rule.Action
+			decision.PolicyID = rule.ID
+			decision.Reason = "input detection matched configured policy"
+			decision.MatchedRules = matchingRulesForPolicy(rule, results)
+			return decision
+		}
+	}
+	return decision
+}
+
+func matchingRulesForPolicy(rule Rule, results []detection.DetectionResult) []string {
+	matching := make([]detection.DetectionResult, 0, len(results))
+	for _, result := range results {
+		if result.DetectionType == rule.DetectionType && result.Score >= rule.MinScore {
+			matching = append(matching, result)
+		}
+	}
+	return matchingDetectorRules(matching)
+}
+
+func Validate(config Config) error {
+	if !validAction(config.DefaultAction) {
+		return fmt.Errorf("policy.input.default_action must be PASS, REDACT, or BLOCK")
+	}
+	for index, rule := range config.Rules {
+		if strings.TrimSpace(rule.ID) == "" {
+			return fmt.Errorf("policy.input.rules[%d].id must not be empty", index)
+		}
+		if !validDetectionType(rule.DetectionType) {
+			return fmt.Errorf("policy.input.rules[%d].when.detection_type is invalid", index)
+		}
+		if rule.MinScore < 0 || rule.MinScore > 1 {
+			return fmt.Errorf("policy.input.rules[%d].when.min_score must be between 0 and 1", index)
+		}
+		if !validAction(rule.Action) {
+			return fmt.Errorf("policy.input.rules[%d].action must be PASS, REDACT, or BLOCK", index)
+		}
+	}
+	return nil
+}
+
+func validAction(action Action) bool {
+	return action == ActionPass || action == ActionRedact || action == ActionBlock
+}
+
+func validDetectionType(detectionType detection.DetectionType) bool {
+	return detectionType == detection.DetectionTypePII || detectionType == detection.DetectionTypeSecret
+}
+
+func matches(rule Rule, results []detection.DetectionResult) bool {
+	for _, result := range results {
+		if result.DetectionType == rule.DetectionType && result.Score >= rule.MinScore {
+			return true
+		}
+	}
+	return false
+}
+
+func maxRiskScore(results []detection.DetectionResult) float64 {
+	var max float64
+	for _, result := range results {
+		if result.Score > max {
+			max = result.Score
+		}
+	}
+	return max
+}
+
+func matchingDetectorRules(results []detection.DetectionResult) []string {
+	if len(results) == 0 {
+		return []string{}
+	}
+	ids := make([]string, 0, len(results))
+	seen := make(map[string]struct{}, len(results))
+	for _, result := range results {
+		if _, exists := seen[result.RuleID]; !exists {
+			ids = append(ids, result.RuleID)
+			seen[result.RuleID] = struct{}{}
+		}
+	}
+	return ids
+}
+
+var decisionSequence atomic.Uint64
+
+func nextID() string {
+	return fmt.Sprintf("policy_%d", decisionSequence.Add(1))
+}

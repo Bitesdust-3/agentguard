@@ -39,13 +39,15 @@ Build a focused, explainable, and testable security project suitable for public 
 - Local-admin `GET /api/audit/events` API with event, decision, detection, request, tool-call, and limit filters.
 - Lightweight local Security Dashboard with overview metrics, security-event filters, request/tool timelines, and Tool/Approval controls.
 - Server-rendered Go Templates with HTMX-enhanced event filtering, periodic overview refresh, and existing Approval API actions.
+- Deterministic Security Benchmark Runner that reuses production Detector, Policy, and Tool Policy logic.
+- Development-scale fictional Benchmark dataset with detection metrics, policy-decision accuracy, Tool Policy evaluation, reproducible hashes, and SQLite run persistence.
 
 The current Tool Executor is mock-only: it never reads or deletes real files, sends email, queries a database, runs shell commands, or contacts external systems.
 - Graceful shutdown for `SIGINT` and `SIGTERM`.
 
 ### Planned for v1.0
 
-- Security benchmark.
+- Expanded benchmark datasets and reporting.
 
 ## Planned Technology Stack
 
@@ -97,12 +99,20 @@ To run the test suite:
 go test ./...
 ```
 
-Open the local dashboard at `http://127.0.0.1:8080/dashboard`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Benchmark and real LLM providers are still planned work.
+Open the local dashboard at `http://127.0.0.1:8080/dashboard`. The current Audit trail stores privacy-minimized metadata only: it does not retain complete prompts, provider responses, Secrets, PII, or Tool arguments. Expanded Benchmark reporting and real LLM providers are still planned work.
+
+Run the development Benchmark dataset with:
+
+```bash
+go run ./cmd/benchmark -dataset tests/benchmark/development.yaml
+```
+
+It uses fictional samples only and records privacy-minimized results; the current dataset is for development validation, not final public benchmark claims.
 
 ## Roadmap
 
 - **Completed:** Repository foundation, health endpoint, OpenAI-style non-streaming gateway, deterministic Mock Provider, and the MVP input Secret/PII detection plus `PASS`/`REDACT`/`BLOCK` policy path.
-- **Planned:** Benchmark and one real OpenAI-compatible provider.
+- **Planned:** Expanded benchmark datasets/reporting and one real OpenAI-compatible provider.
 - **Future Work:** Consider additional capabilities only after v1.0 is stable and its security value is validated. For future Tools with real external side effects, a final Audit persistence failure after the external action cannot be rolled back by a local SQLite transaction; production designs may consider idempotent external operations, Outbox, or Workflow patterns.
 
 ## License

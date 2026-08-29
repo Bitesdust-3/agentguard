@@ -36,6 +36,13 @@ var migrations = []migration{
 		`CREATE INDEX idx_policy_decisions_tool_created ON policy_decisions(tool_call_id, created_at)`,
 		`CREATE INDEX idx_policy_decisions_decision_created ON policy_decisions(decision, created_at)`,
 	}},
+	{version: 4, statements: []string{
+		`CREATE TABLE benchmark_runs (id TEXT PRIMARY KEY, dataset_version TEXT NOT NULL, dataset_hash TEXT NOT NULL, config_hash TEXT NOT NULL, provider_mode TEXT NOT NULL, random_seed INTEGER NOT NULL, agentguard_version TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('RUNNING','COMPLETED','FAILED')), total_samples INTEGER NOT NULL, started_at TEXT NOT NULL, completed_at TEXT)`,
+		`CREATE TABLE benchmark_results (id TEXT PRIMARY KEY, benchmark_run_id TEXT NOT NULL REFERENCES benchmark_runs(id), case_id TEXT NOT NULL, category TEXT NOT NULL CHECK(category IN ('normal','pii','secret','direct_prompt_injection','indirect_prompt_injection','tool_misuse','approval_bypass')), expected_detection INTEGER, actual_detection INTEGER, expected_decision TEXT NOT NULL CHECK(expected_decision IN ('PASS','REDACT','BLOCK','APPROVAL')), actual_decision TEXT NOT NULL CHECK(actual_decision IN ('PASS','REDACT','BLOCK','APPROVAL')), expected_rule TEXT, matched_rule TEXT, passed INTEGER NOT NULL, latency_ns INTEGER NOT NULL, safe_reason TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(benchmark_run_id, case_id))`,
+		`CREATE INDEX idx_benchmark_runs_created ON benchmark_runs(started_at)`,
+		`CREATE INDEX idx_benchmark_runs_dataset_config ON benchmark_runs(dataset_version, config_hash)`,
+		`CREATE INDEX idx_benchmark_results_run_category ON benchmark_results(benchmark_run_id, category)`,
+	}},
 }
 
 // Migrate records schema versions in a single metadata table. Migration 1 is

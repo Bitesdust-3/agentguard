@@ -50,8 +50,8 @@ func TestAuditSchemaIntegrityAndMigrationOrder(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(versions) != 3 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 {
-		t.Fatalf("migration versions = %v, want [1 2 3]", versions)
+	if len(versions) != 4 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 || versions[3] != 4 {
+		t.Fatalf("migration versions = %v, want [1 2 3 4]", versions)
 	}
 	for _, table := range []string{"requests", "detections", "policy_decisions", "audit_events"} {
 		var count int

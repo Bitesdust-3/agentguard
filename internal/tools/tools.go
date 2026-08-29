@@ -106,11 +106,7 @@ func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval,
 	if !safeLabel(request.ToolName) || !safeLabel(request.TargetType) {
 		return Call{}, nil, ErrInvalidRequest
 	}
-	action, policyID := s.evaluate(request)
-	if !known(request.ToolName) {
-		action = policy.ActionBlock
-		policyID = "tools.unknown.block.v1"
-	}
+	action, policyID := EvaluatePolicy(s.cfg, request)
 	now := time.Now().UTC()
 	call := Call{ID: next("tool"), ToolName: request.ToolName, TargetType: request.TargetType, External: request.External, Destructive: request.Destructive, Sensitive: request.Sensitive, Decision: action, PolicyID: policyID, ArgumentsSummary: summarizeArguments(request.Arguments), CreatedAt: now, UpdatedAt: now}
 	switch action {
@@ -259,13 +255,18 @@ func safeLabel(value string) bool {
 	return true
 }
 
-func (s *Service) evaluate(request Request) (policy.Action, string) {
-	for _, rule := range s.cfg.Rules {
+// EvaluatePolicy applies the production Tool Policy without creating a Tool
+// Call or invoking an Executor. It is used by the deterministic Benchmark.
+func EvaluatePolicy(cfg config.ToolsConfig, request Request) (policy.Action, string) {
+	for _, rule := range cfg.Rules {
 		if match(rule.Match, request) {
 			return policy.Action(rule.Action), rule.ID
 		}
 	}
-	return policy.Action(s.cfg.DefaultAction), "tools.default.v1"
+	if !known(request.ToolName) {
+		return policy.ActionBlock, "tools.unknown.block.v1"
+	}
+	return policy.Action(cfg.DefaultAction), "tools.default.v1"
 }
 func match(m config.ToolRuleMatch, r Request) bool {
 	return m.Name == r.ToolName && (m.TargetType == "" || m.TargetType == r.TargetType) && (m.External == nil || *m.External == r.External) && (m.Destructive == nil || *m.Destructive == r.Destructive) && (m.Sensitive == nil || *m.Sensitive == r.Sensitive)

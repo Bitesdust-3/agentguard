@@ -1,25 +1,22 @@
 # AgentGuard
 
-AgentGuard is a lightweight AI agent security gateway and automated security evaluation platform. It places an explainable, auditable safety pipeline in front of OpenAI-compatible text chat and selected agent Tool Calls.
+AgentGuard is an **AI Agent Security Gateway** (AI Agent 安全控制网关) and automated security evaluation platform. It places an explainable, auditable safety pipeline in front of OpenAI-compatible text chat and selected agent Tool Calls.
 
 > **Status: v1.0.0**
 
 ## Why AgentGuard
 
-LLM applications need controls around both model traffic and agent actions. AgentGuard demonstrates a small, inspectable design that separates risk detection from policy decisions, minimizes sensitive audit data, and remains usable without an external model or API key.
+LLM applications need controls around both model traffic and agent actions. AgentGuard separates risk detection from policy decisions, minimizes sensitive audit data, and remains usable without an external model or API key.
 
 ## Core capabilities
 
-- OpenAI-style, non-streaming `POST /v1/chat/completions` gateway.
-- Deterministic local Mock Provider and one configurable OpenAI-compatible provider.
-- Rule-based Secret and PII detection with privacy-safe evidence and redaction.
-- Rule-based plus feature-scored direct and basic indirect Prompt Injection detection.
-- Independent input and output `PASS`, `REDACT`, and `BLOCK` policy enforcement.
-- Configuration-driven Tool Policy with `PASS`, `APPROVAL`, and `BLOCK` decisions.
-- Persisted approval workflow and mock-only Tool Executor.
-- Fail-closed SQLite audit persistence with Request/Tool correlation.
-- Local server-rendered Audit, Tool/Approval, and Benchmark dashboards.
-- Reproducible Security Benchmark runner using the same production Detector and Policy logic.
+- **Input Guard** — PII / Secret Detection and direct or basic indirect Prompt Injection Detection.
+- **Policy Enforcement** — independent input and output `PASS`, `REDACT`, and `BLOCK` decisions.
+- **Output Guard** — applies the same detection and policy model before Provider output reaches the client.
+- **Tool Policy and Human Approval** — configuration-driven `PASS`, `APPROVAL`, and `BLOCK` decisions with a mock-only executor.
+- **Audit Trail** — fail-closed SQLite persistence correlates requests, detections, policy decisions, Tool Calls, and approvals.
+- **Security Benchmark** — reproducible evaluation using the same production Detector and Policy logic.
+- **OpenAI-Compatible Provider** — one configurable upstream provider alongside the deterministic local Mock Provider.
 
 The Mock Provider and Tool Executor perform no real AI inference or external action.
 
@@ -85,26 +82,6 @@ Stop the service without deleting persisted data:
 docker compose down
 ```
 
-## Demo
-
-With AgentGuard running in Mock mode, generate a small set of fictional Chat and Tool events:
-
-```bash
-./scripts/demo.sh
-```
-
-The script demonstrates:
-
-1. Normal Chat → `PASS`
-2. Fictional email address → `REDACT`
-3. Prompt Injection → `BLOCK`
-4. `weather.read` → `PASS` and mock `EXECUTED`
-5. `email.send` → `APPROVAL`, approve, then mock `EXECUTED`
-6. `file.delete` → `BLOCK`
-7. Audit and Benchmark dashboard links
-
-For a non-default port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:18080 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
-
 ## Dashboard
 
 - Overview: `/dashboard`
@@ -112,7 +89,47 @@ For a non-default port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:18080 ./script
 - Tool Calls and approvals: `/dashboard/tools`
 - Latest persisted Benchmark: `/dashboard/benchmark`
 
-The Dashboard is a local administrative display over existing audit and benchmark data. It does not define core entities or policy behavior.
+The Dashboard is a local administrative display over existing audit and benchmark data. Its lightweight Chinese/English switch defaults to Chinese and preserves the selected language in the browser; security decision values remain unchanged. It does not define core entities or policy behavior.
+
+## Dashboard Preview
+
+The screenshots below use only fictional demo data and the persisted Curated Benchmark v1 result.
+
+### Overview
+
+Security posture at a glance: request decisions, security flow, recent Audit events, and Tool Policy status.
+
+![AgentGuard Overview](docs/images/dashboard-overview.png)
+
+### Security Events
+
+The Audit event stream shows policy outcomes and safe summaries without exposing raw request content.
+
+![AgentGuard Security Events](docs/images/security-events.png)
+
+### Tool & Approval
+
+Tool Policy makes PASS, APPROVAL, and BLOCK paths immediately visible alongside execution state.
+
+![AgentGuard Tool and Approval](docs/images/tool-approval.png)
+
+### Benchmark
+
+Curated Benchmark v1 presents security metrics, category performance, reproducibility metadata, and visible limitations.
+
+![AgentGuard Benchmark](docs/images/benchmark.png)
+
+### Request Detail
+
+A PII REDACT request keeps the detection, rule, policy decision, and Audit trail correlated without storing the original value.
+
+![AgentGuard PII Redact Request Detail](docs/images/request-detail.png)
+
+### Prompt Injection Block
+
+A Prompt Injection request is stopped before Provider access and recorded as a BLOCK decision.
+
+![AgentGuard Prompt Injection Block](docs/images/prompt-injection-block.png)
 
 ## Security Benchmark
 
@@ -125,7 +142,7 @@ go run ./cmd/benchmark \
   -seed 42
 ```
 
-The dataset contains 266 fictional cases across seven evenly represented categories: normal, PII, Secret, direct Prompt Injection, indirect Prompt Injection, Tool misuse, and approval bypass. It includes hard negatives and boundary cases.
+The dataset contains **266 curated fictional samples** across seven evenly represented categories: normal, PII, Secret, direct Prompt Injection, indirect Prompt Injection, Tool misuse, and approval bypass. It includes hard negatives and boundary cases. Reproducibility uses **Seed 42** and canonical Dataset Hash `31e5fa5c5758fe207f0028ea7b0de2f5f553222236aa1ff34ad28f1cad16caa0`.
 
 Current default-policy result:
 
@@ -141,6 +158,24 @@ Current default-policy result:
 | Added Latency (Docker verification run) | Average 23.408 µs; P50 25.328 µs; P95 56.565 µs |
 
 Latency depends on the host and is measured on each run. The result is not presented as state of the art. Known misses and false positives remain visible: some paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type.
+
+## Demo flow
+
+With AgentGuard running in Mock mode, run the fictional end-to-end demo:
+
+```bash
+./scripts/demo.sh
+```
+
+1. Normal Chat → `PASS`
+2. PII Input → `REDACT`
+3. Prompt Injection → `BLOCK` before Provider access
+4. `weather.read` → `PASS` → mock `EXECUTED`
+5. `email.send` → `APPROVAL` → Human Approve → mock `EXECUTED`
+6. `file.delete` → `BLOCK`
+7. Review the Audit Dashboard and Benchmark Dashboard
+
+For a non-default port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:18080 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
 
 ## Configuration
 

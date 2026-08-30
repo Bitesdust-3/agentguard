@@ -1,21 +1,33 @@
 {{define "content"}}
 {{if .Benchmark.Found}}
-<section class="metric-grid">
-  <article class="metric"><span>Dataset</span><strong>{{.Benchmark.DatasetVersion}}</strong></article>
-  <article class="metric"><span>Samples</span><strong>{{.Benchmark.Total}}</strong></article>
-  <article class="metric"><span>Detection Accuracy</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}</strong></article>
-  <article class="metric"><span>Precision</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}</strong></article>
-  <article class="metric"><span>Recall</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}</strong></article>
-  <article class="metric"><span>False Positive Rate</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}</strong></article>
-  <article class="metric"><span>False Negative Rate</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}</strong></article>
-  <article class="metric"><span>Decision Accuracy</span><strong>{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}</strong></article>
-  <article class="metric"><span>Avg Added Latency</span><strong>{{.Benchmark.Metrics.AverageLatency}}</strong></article>
-  <article class="metric"><span>P50 Added Latency</span><strong>{{.Benchmark.Metrics.P50}}</strong></article>
-  <article class="metric"><span>P95 Added Latency</span><strong>{{.Benchmark.Metrics.P95}}</strong></article>
+<section class="benchmark-hero">
+  <div class="primary-score"><span data-i18n="benchmark.accuracy">准确率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}</strong><small>{{.Benchmark.DatasetVersion}} · {{.Benchmark.Total}} <i data-i18n="benchmark.samples">样本数</i></small></div>
+  <div class="decision-score"><span data-i18n="benchmark.decisionAccuracy">决策准确率</span><strong>{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}</strong><p data-i18n="benchmark.honestNote">真实展示误报、漏报与策略偏差</p></div>
+  <div class="latency-block"><span data-i18n="benchmark.averageLatency">平均额外延迟</span><strong>{{.Benchmark.Metrics.AverageLatency}}</strong><small>P50 {{.Benchmark.Metrics.P50}} / P95 {{.Benchmark.Metrics.P95}}</small></div>
 </section>
-<section class="panel"><h2>Reproducibility</h2><p>Run: {{.Benchmark.RunID}} · Dataset hash: {{.Benchmark.DatasetHash}} · Config hash: {{.Benchmark.ConfigHash}}</p></section>
-<section class="panel"><h2>Recent Benchmark Runs</h2><div class="table-wrap"><table><thead><tr><th>Run</th><th>Dataset</th><th>Samples</th><th>Completed</th></tr></thead><tbody>{{range .Benchmark.Runs}}<tr><td><a href="/dashboard/benchmark?run={{.ID}}">{{.ID}}</a></td><td>{{.DatasetVersion}}</td><td>{{.Total}}</td><td>{{formatTime .CompletedAt}}</td></tr>{{end}}</tbody></table></div></section>
-<section class="panel"><h2>Category Metrics</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th>Samples</th><th>Detection accuracy</th><th>Recall</th><th>Decision accuracy</th><th>Passed</th><th>Failed</th><th>Avg added latency</th></tr></thead><tbody>{{range .Benchmark.Categories}}<tr><td>{{.Name}}</td><td>{{.Metrics.SampleCount}}</td><td>{{benchmarkRate .Metrics .Metrics.Accuracy}}</td><td>{{benchmarkRate .Metrics .Metrics.Recall}}</td><td>{{printf "%.3f" .Metrics.DecisionAccuracy}}</td><td>{{.Metrics.Passed}}</td><td>{{.Metrics.Failed}}</td><td>{{.Metrics.AverageLatency}}</td></tr>{{end}}</tbody></table></div></section>
-<section class="panel"><h2>Safe Failure Summary</h2><p class="empty">Input text, Prompts, provider responses, and raw sensitive values are never displayed here.</p><div class="table-wrap"><table><thead><tr><th>Sample</th><th>Category</th><th>Expected</th><th>Actual</th><th>Rule</th><th>Safe reason</th></tr></thead><tbody>{{range .Benchmark.Failures}}<tr><td>{{.ID}}</td><td>{{.Category}}</td><td>{{.ExpectedDecision}}</td><td>{{.ActualDecision}}</td><td>{{.MatchedRule}}</td><td>{{.SafeReason}}</td></tr>{{else}}<tr><td colspan="6" class="empty">No failed samples.</td></tr>{{end}}</tbody></table></div></section>
-{{else}}<section class="panel"><h2>No Benchmark runs yet</h2><p class="empty">Run the CLI Benchmark first; this Dashboard only reads persisted results.</p></section>{{end}}
+
+<section class="metric-ribbon">
+  <div><span data-i18n="benchmark.precision">精确率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}</strong></div>
+  <div><span data-i18n="benchmark.recall">召回率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}</strong></div>
+  <div class="warning"><span data-i18n="benchmark.fpr">误报率 FPR</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}</strong></div>
+  <div class="danger"><span data-i18n="benchmark.fnr">漏报率 FNR</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}</strong></div>
+</section>
+
+<div class="benchmark-layout">
+  <section class="category-console">
+    <div class="section-heading"><div><span data-i18n="label.controlPerformance">控制性能</span><h2 data-i18n="benchmark.categoryMetrics">分类指标</h2></div></div>
+    <div class="category-bars">{{range .Benchmark.Categories}}<article><div><strong data-benchmark-category="{{.Name}}">{{benchmarkCategoryLabel .Name}}</strong><span>{{.Metrics.Passed}} / {{.Metrics.SampleCount}}</span></div><meter min="0" max="1" value="{{.Metrics.DecisionAccuracy}}">{{printf "%.3f" .Metrics.DecisionAccuracy}}</meter><p><span data-i18n="benchmark.accuracy">准确率</span> {{benchmarkRate .Metrics .Metrics.Accuracy}} · <span data-i18n="benchmark.recall">召回率</span> {{benchmarkRate .Metrics .Metrics.Recall}} · <span data-i18n="benchmark.averageLatencyShort">平均额外延迟</span> {{.Metrics.AverageLatency}}</p></article>{{end}}</div>
+  </section>
+
+  <aside class="benchmark-meta">
+    <div><span data-i18n="benchmark.reproducibility">可复现性</span><strong>{{.Benchmark.RunID}}</strong><dl><dt data-i18n="benchmark.datasetHash">数据集哈希</dt><dd>{{.Benchmark.DatasetHash}}</dd><dt data-i18n="benchmark.configHash">配置哈希</dt><dd>{{.Benchmark.ConfigHash}}</dd></dl></div>
+    <div><span data-i18n="benchmark.recentRuns">最近评测运行</span>{{range .Benchmark.Runs}}<a href="/dashboard/benchmark?run={{.ID}}"><strong>{{.DatasetVersion}}</strong><small>{{formatTime .CompletedAt}}</small></a>{{end}}</div>
+  </aside>
+</div>
+
+<section class="failure-console">
+  <div class="failure-heading"><div><span data-i18n="label.knownFailures">已知薄弱项与失败</span><h2 data-i18n="benchmark.safeFailureSummary">安全失败摘要</h2></div><p data-i18n="benchmark.safeFailureNote">这里不会显示输入文本、Prompt、Provider响应或敏感信息原值。</p></div>
+  <div class="failure-list">{{range .Benchmark.Failures}}<article><strong>{{.ID}}</strong><span data-benchmark-category="{{.Category}}">{{benchmarkCategoryLabel .Category}}</span><span><i data-i18n="benchmark.expected">预期</i> {{.ExpectedDecision}}</span><span><i data-i18n="benchmark.actual">实际</i> {{.ActualDecision}}</span><span>{{.MatchedRule}}</span><p>{{.SafeReason}}</p></article>{{else}}<p class="empty-state" data-i18n="empty.failures">没有失败样本。</p>{{end}}</div>
+</section>
+{{else}}<section class="empty-console"><span>BENCHMARK / NO RUN</span><h2 data-i18n="empty.benchmarkTitle">暂无 Benchmark 运行记录</h2><p data-i18n="empty.benchmarkBody">请先运行 CLI Benchmark；此 Dashboard 只读取已持久化的结果。</p></section>{{end}}
 {{end}}

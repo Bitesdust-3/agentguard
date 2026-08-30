@@ -1,14 +1,25 @@
 {{define "content"}}
-<section class="panel filter-panel"><form hx-get="/dashboard/partials/events" hx-target="#events-table" hx-swap="outerHTML">
-  <label>Event type<input name="event_type" value="{{.Events.Filters.EventType}}" placeholder="e.g. INPUT_POLICY"></label>
-  <label>Decision<select name="decision"><option value="">All</option><option value="PASS" {{if eq .Events.Filters.Decision "PASS"}}selected{{end}}>PASS</option><option value="REDACT" {{if eq .Events.Filters.Decision "REDACT"}}selected{{end}}>REDACT</option><option value="BLOCK" {{if eq .Events.Filters.Decision "BLOCK"}}selected{{end}}>BLOCK</option><option value="APPROVAL" {{if eq .Events.Filters.Decision "APPROVAL"}}selected{{end}}>APPROVAL</option></select></label>
-  <label>Detection type<select name="detection_type"><option value="">All</option><option value="PII" {{if eq $.Events.Filters.DetectionType "PII"}}selected{{end}}>PII</option><option value="SECRET" {{if eq $.Events.Filters.DetectionType "SECRET"}}selected{{end}}>SECRET</option><option value="PROMPT_INJECTION" {{if eq $.Events.Filters.DetectionType "PROMPT_INJECTION"}}selected{{end}}>PROMPT_INJECTION</option></select></label>
-  <button type="submit">Filter</button><a class="button secondary" href="/dashboard/events">Clear</a>
+<section class="filter-bar"><form hx-get="/dashboard/partials/events" hx-target="#events-table" hx-swap="outerHTML">
+  <label><span data-i18n="filter.eventType">事件类型</span><input name="event_type" value="{{.Events.Filters.EventType}}" data-i18n-placeholder="filter.eventPlaceholder" placeholder="例如 INPUT_POLICY"></label>
+  <label><span data-i18n="filter.decision">决策</span><select name="decision"><option value="" data-i18n="common.all">全部</option><option value="PASS" {{if eq .Events.Filters.Decision "PASS"}}selected{{end}}>PASS</option><option value="REDACT" {{if eq .Events.Filters.Decision "REDACT"}}selected{{end}}>REDACT</option><option value="BLOCK" {{if eq .Events.Filters.Decision "BLOCK"}}selected{{end}}>BLOCK</option><option value="APPROVAL" {{if eq .Events.Filters.Decision "APPROVAL"}}selected{{end}}>APPROVAL</option></select></label>
+  <label><span data-i18n="filter.detectionType">检测类型</span><select name="detection_type"><option value="" data-i18n="common.all">全部</option><option value="PII" {{if eq $.Events.Filters.DetectionType "PII"}}selected{{end}} data-detection-label="PII">敏感信息 PII</option><option value="SECRET" {{if eq $.Events.Filters.DetectionType "SECRET"}}selected{{end}} data-detection-label="SECRET">密钥/凭据 Secret</option><option value="PROMPT_INJECTION" {{if eq $.Events.Filters.DetectionType "PROMPT_INJECTION"}}selected{{end}} data-detection-label="PROMPT_INJECTION">提示词注入 Prompt Injection</option></select></label>
+  <div class="filter-actions"><button type="submit" data-i18n="common.filter">筛选</button><a class="button secondary" href="/dashboard/events" data-i18n="common.clear">清除</a></div>
 </form></section>
 {{template "events_table" .}}
 {{end}}
 {{define "events_table"}}
-<section id="events-table" class="panel"><div class="panel-heading"><h2>Security Events</h2><span>{{len .Events.Items}} results</span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Detection / Rule</th><th>Decision</th><th>Risk</th><th>Record</th><th>Safe summary</th></tr></thead><tbody>
-{{range .Events.Items}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.EventType}}</td><td>{{if .DetectionType}}<span class="tag {{detectionClass .DetectionType}}">{{.DetectionType}}</span><br><small>{{.RuleID}}</small>{{else}}—{{end}}</td><td>{{if .Decision}}<span class="tag {{decisionClass .Decision}}">{{.Decision}}</span>{{else}}—{{end}}</td><td>{{formatScore .RiskScore}}</td><td>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}—{{end}}</td><td>{{.Summary}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No events match the current filters.</td></tr>{{end}}
-</tbody></table></div></section>
+<section id="events-table" class="event-console">
+  <div class="section-heading"><div><span data-i18n="label.auditTimeline">审计时间线</span><h2 data-i18n="page.events">安全事件</h2></div><strong data-i18n-count="{{len .Events.Items}}">{{len .Events.Items}} 条结果</strong></div>
+  <div class="event-stream">
+    <div class="event-header"><span data-i18n="table.time">时间</span><span data-i18n="table.event">事件</span><span data-i18n="table.decision">决策</span><span data-i18n="table.risk">风险</span><span data-i18n="table.linkedRecord">关联记录</span></div>
+    {{range .Events.Items}}<article class="event-entry {{decisionClass .Decision}}">
+      <div class="event-time"><time>{{formatTime .CreatedAt}}</time><span class="event-pulse"></span></div>
+      <div class="event-signal"><strong>{{.EventType}}</strong><span>{{if .DetectionType}}<b class="tag {{detectionClass .DetectionType}}" data-detection-label="{{.DetectionType}}">{{detectionLabel .DetectionType}}</b>{{if .RuleID}}<small>{{.RuleID}}</small>{{end}}{{else}}<small data-i18n="events.noDetection">无检测信号</small>{{end}}</span></div>
+      <div class="event-decision"><small data-i18n="table.decision">决策</small>{{if .Decision}}<strong class="tag {{decisionClass .Decision}}">{{.Decision}}</strong>{{else}}<strong>—</strong>{{end}}</div>
+      <div class="event-risk"><small data-i18n="table.risk">风险</small><strong>{{formatScore .RiskScore}}</strong></div>
+      <div class="event-record"><small data-i18n="table.record">记录</small>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}<span>—</span>{{end}}</div>
+      <p class="event-summary"><span data-i18n="table.safeSummary">安全摘要</span>{{.Summary}}</p>
+    </article>{{else}}<p class="empty-state" data-i18n="empty.events">当前筛选条件下没有安全事件。</p>{{end}}
+  </div>
+</section>
 {{end}}

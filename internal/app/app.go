@@ -58,7 +58,7 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 	}
 	auditStore := audit.New(store.DB())
 	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools, auditStore))
-	dashboard, err := web.New(store.DB(), version)
+	dashboard, err := web.New(store.DB(), version, cfg.Provider.Type)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("initialize dashboard: %w", err)

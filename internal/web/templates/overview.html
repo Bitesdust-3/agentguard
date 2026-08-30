@@ -1,22 +1,46 @@
 {{define "content"}}{{template "overview_content" .}}{{end}}
 {{define "overview_content"}}
-<section id="overview-content" hx-get="/dashboard/partials/overview" hx-trigger="every 30s" hx-swap="outerHTML">
-  <div class="metric-grid">
-    <article class="metric"><span>Total Chat Requests</span><strong>{{.Overview.Metrics.TotalChats}}</strong></article>
-    <article class="metric pass"><span>PASS</span><strong>{{.Overview.Metrics.Pass}}</strong></article>
-    <article class="metric redact"><span>REDACT</span><strong>{{.Overview.Metrics.Redact}}</strong></article>
-    <article class="metric block"><span>BLOCK</span><strong>{{.Overview.Metrics.Block}}</strong></article>
-    <article class="metric approval"><span>APPROVAL</span><strong>{{.Overview.Metrics.Approval}}</strong></article>
-    <article class="metric"><span>Detections</span><strong>{{.Overview.Metrics.Detections}}</strong></article>
-    <article class="metric"><span>Prompt Injection</span><strong>{{.Overview.Metrics.PromptInjection}}</strong></article>
-    <article class="metric"><span>Secret / PII</span><strong>{{.Overview.Metrics.Secret}} / {{.Overview.Metrics.PII}}</strong></article>
-    <article class="metric"><span>Tool Calls</span><strong>{{.Overview.Metrics.ToolCalls}}</strong></article>
-    <article class="metric approval"><span>Pending Approval</span><strong>{{.Overview.Metrics.PendingApprovals}}</strong></article>
-  </div>
-  <section class="panel"><div class="panel-heading"><h2>Recent Security Events</h2><a href="/dashboard/events">View all</a></div>
-    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Detection</th><th>Decision</th><th>Linked record</th></tr></thead><tbody>
-      {{range .Overview.Recent}}<tr><td>{{formatTime .CreatedAt}}</td><td>{{.EventType}}</td><td>{{if .DetectionType}}<span class="tag {{detectionClass .DetectionType}}">{{.DetectionType}}</span>{{else}}—{{end}}</td><td>{{if .Decision}}<span class="tag {{decisionClass .Decision}}">{{.Decision}}</span>{{else}}—{{end}}</td><td>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}—{{end}}</td></tr>{{else}}<tr><td colspan="5" class="empty">No audit events yet.</td></tr>{{end}}
-    </tbody></table></div>
+<section id="overview-content" class="overview-console" hx-get="/dashboard/partials/overview" hx-trigger="every 30s" hx-swap="outerHTML">
+  <section class="flow-section">
+    <div class="section-label"><span data-i18n="label.securityFlow">安全链路</span><h2 data-i18n="overview.securityFlow">安全处理链路</h2><p data-i18n="overview.flowNote">请求从客户端进入，依次经过输入检测、策略决策、Provider 与输出防护。</p></div>
+    <div class="metric-strip" aria-label="Security metrics">
+      <div><span data-i18n="overview.totalChats">Chat 请求总数</span><strong>{{.Overview.Metrics.TotalChats}}</strong></div>
+      <div class="pass"><span>PASS</span><strong>{{.Overview.Metrics.Pass}}</strong></div>
+      <div class="redact"><span>REDACT</span><strong>{{.Overview.Metrics.Redact}}</strong></div>
+      <div class="block"><span>BLOCK</span><strong>{{.Overview.Metrics.Block}}</strong></div>
+      <div class="approval"><span data-i18n="overview.pendingApproval">待审批</span><strong>{{.Overview.Metrics.PendingApprovals}}</strong></div>
+    </div>
+    <div class="security-flow" aria-label="Security flow">
+      <div class="flow-node"><small>01</small><strong>Client</strong><span><b>{{.Overview.Metrics.TotalChats}}</b> <i data-i18n="overview.requests">请求</i></span></div>
+      <span class="flow-link" aria-hidden="true"></span>
+      <div class="flow-node signal"><small>02</small><strong>Input Guard</strong><span><b>{{.Overview.Metrics.Detections}}</b> <i data-i18n="overview.signals">风险信号</i></span></div>
+      <span class="flow-link" aria-hidden="true"></span>
+      <div class="flow-node policy-node"><small>03</small><strong>Policy</strong><span class="flow-decisions"><em class="pass">PASS {{.Overview.Metrics.Pass}}</em><em class="redact">REDACT {{.Overview.Metrics.Redact}}</em><em class="block">BLOCK {{.Overview.Metrics.Block}}</em></span></div>
+      <span class="flow-link" aria-hidden="true"></span>
+      <div class="flow-node"><small>04</small><strong>Provider</strong><span data-i18n="overview.controlled">受控调用</span></div>
+      <span class="flow-link" aria-hidden="true"></span>
+      <div class="flow-node"><small>05</small><strong>Output Guard</strong><span data-i18n="overview.enforced">策略已启用</span></div>
+    </div>
   </section>
+
+  <div class="overview-grid">
+    <section class="stream-section">
+      <div class="section-heading"><div><span data-i18n="label.auditStream">审计流</span><h2 data-i18n="overview.recentEvents">最近安全事件</h2></div><a href="/dashboard/events" data-i18n="common.viewAll">查看全部</a></div>
+      <div class="compact-stream">
+        {{range .Overview.Recent}}<article class="stream-row {{decisionClass .Decision}}"><time>{{formatTime .CreatedAt}}</time><div><strong>{{.EventType}}</strong>{{if .DetectionType}}<span class="tag {{detectionClass .DetectionType}}" data-detection-label="{{.DetectionType}}">{{detectionLabel .DetectionType}}</span>{{end}}</div><div>{{if .Decision}}<span class="tag {{decisionClass .Decision}}">{{.Decision}}</span>{{else}}<span class="muted">—</span>{{end}}</div><div>{{if .RequestID}}<a href="/dashboard/requests/{{.RequestID}}">{{.RequestID}}</a>{{else if .ToolCallID}}<a href="/dashboard/tools/{{.ToolCallID}}">{{.ToolCallID}}</a>{{else}}—{{end}}</div></article>{{else}}<p class="empty-state" data-i18n="empty.audit">暂无安全审计事件。</p>{{end}}
+      </div>
+    </section>
+
+    <aside class="signal-board">
+      <div class="approval-focus"><span data-i18n="overview.pendingApproval">待审批</span><strong>{{.Overview.Metrics.PendingApprovals}}</strong><small data-i18n="label.approvalQueue">审批队列</small></div>
+      <dl class="signal-ledger">
+        <div><dt data-i18n="term.promptInjection">提示词注入 Prompt Injection</dt><dd>{{.Overview.Metrics.PromptInjection}}</dd></div>
+        <div><dt data-i18n="term.secret">密钥/凭据 Secret</dt><dd>{{.Overview.Metrics.Secret}}</dd></div>
+        <div><dt data-i18n="term.pii">敏感信息 PII</dt><dd>{{.Overview.Metrics.PII}}</dd></div>
+        <div><dt data-i18n="overview.toolCalls">工具调用</dt><dd>{{.Overview.Metrics.ToolCalls}}</dd></div>
+      </dl>
+      <div class="policy-status"><span class="status-dot"></span><div><strong>Tool Policy</strong><small data-i18n="overview.policyActive">策略执行中</small></div></div>
+    </aside>
+  </div>
 </section>
 {{end}}

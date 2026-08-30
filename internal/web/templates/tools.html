@@ -1,5 +1,23 @@
 {{define "content"}}
-<section class="panel"><div class="panel-heading"><h2>Tool Calls &amp; Approval</h2><span>Policy-enforced workflow</span></div><div class="table-wrap"><table><thead><tr><th>Tool</th><th>Decision</th><th>State</th><th>Approval</th><th>Attributes</th><th>Created</th><th></th></tr></thead><tbody>
-{{range .Tools.Items}}<tr><td><strong>{{.ToolName}}</strong><br><small>{{.ID}}</small></td><td><span class="tag {{decisionClass .Decision}}">{{.Decision}}</span></td><td>{{.State}}</td><td>{{if .ApprovalStatus}}<span class="tag {{if eq .ApprovalStatus "PENDING"}}approval{{else}}neutral{{end}}">{{.ApprovalStatus}}</span>{{else}}—{{end}}</td><td><small>external={{.External}}<br>destructive={{.Destructive}}<br>sensitive={{.Sensitive}}</small></td><td>{{formatTime .CreatedAt}}</td><td><a class="button secondary" href="/dashboard/tools/{{.ID}}">Detail</a>{{if eq .ApprovalStatus "PENDING"}}<button class="approve" hx-post="/api/approvals/{{.ApprovalID}}/approve" hx-swap="none" hx-on::after-request="dashboardApprovalResult(event)">Approve</button><button class="reject" hx-post="/api/approvals/{{.ApprovalID}}/reject" hx-swap="none" hx-on::after-request="dashboardApprovalResult(event)">Reject</button>{{end}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No Tool Calls yet.</td></tr>{{end}}
-</tbody></table></div></section>
+<section class="tool-console">
+  <div class="tool-route-legend">
+    <div class="route pass"><span>PASS</span><small data-i18n="tools.routePass">直接执行</small></div>
+    <div class="route approval"><span>APPROVAL</span><small data-i18n="tools.routeApproval">等待人工审批</small></div>
+    <div class="route block"><span>BLOCK</span><small data-i18n="tools.routeBlock">禁止执行</small></div>
+    <p data-i18n="tools.enforced">由 Tool Policy 强制执行</p>
+  </div>
+  <div class="section-heading"><div><span data-i18n="label.toolRoutes">工具策略路径</span><h2 data-i18n="page.tools">工具调用与审批</h2></div></div>
+  <div class="tool-stream">
+    <div class="tool-table-head"><span data-i18n="table.tool">工具</span><span data-i18n="table.decision">决策</span><span data-i18n="table.state">状态</span><span data-i18n="table.attributes">属性</span><span data-i18n="table.created">创建时间</span><span data-i18n="table.actions">操作</span></div>
+    {{range .Tools.Items}}<article class="tool-trace {{decisionClass .Decision}}">
+      <div class="tool-identity"><small data-i18n="label.toolRequest">工具请求</small><strong>{{.ToolName}}</strong><a href="/dashboard/tools/{{.ID}}">{{.ID}}</a></div>
+      <span class="trace-arrow" aria-hidden="true"></span>
+      <div class="tool-step"><small data-i18n="label.policyDecision">策略决策</small><strong class="tag {{decisionClass .Decision}}">{{.Decision}}</strong></div>
+      <span class="trace-arrow" aria-hidden="true"></span>
+      <div class="tool-step"><small data-i18n="label.executionState">执行状态</small><strong>{{.State}}</strong>{{if .ApprovalStatus}}<span class="approval-state">{{.ApprovalStatus}}</span>{{end}}</div>
+      <div class="tool-attributes"><span><i data-i18n="attribute.external">外部调用</i> {{.External}}</span><span><i data-i18n="attribute.destructive">破坏性</i> {{.Destructive}}</span><span><i data-i18n="attribute.sensitive">敏感</i> {{.Sensitive}}</span><time>{{formatTime .CreatedAt}}</time></div>
+      <div class="tool-actions"><a class="button secondary" href="/dashboard/tools/{{.ID}}" data-i18n="common.details">详情</a>{{if eq .ApprovalStatus "PENDING"}}<button class="approve" hx-post="/api/approvals/{{.ApprovalID}}/approve" hx-swap="none" hx-on::after-request="dashboardApprovalResult(event)" data-i18n="approval.approve">批准</button><button class="reject" hx-post="/api/approvals/{{.ApprovalID}}/reject" hx-swap="none" hx-on::after-request="dashboardApprovalResult(event)" data-i18n="approval.reject">拒绝</button>{{end}}</div>
+    </article>{{else}}<p class="empty-state" data-i18n="empty.tools">暂无工具调用记录。</p>{{end}}
+  </div>
+</section>
 {{end}}

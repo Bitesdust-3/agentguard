@@ -33,12 +33,12 @@ func TestDashboardOverviewEventsAndDetails(t *testing.T) {
 		path string
 		want []string
 	}{
-		{name: "overview", path: "/dashboard", want: []string{"Total Chat Requests", "Prompt Injection", "Recent Security Events"}},
-		{name: "events decision filter", path: "/dashboard/events?decision=REDACT", want: []string{"Security Events", "REDACT", "pii.email.v1"}},
+		{name: "overview", path: "/dashboard", want: []string{"data-i18n=\"label.securityFlow\">安全链路", "提示词注入 Prompt Injection", "最近安全事件"}},
+		{name: "events decision filter", path: "/dashboard/events?decision=REDACT", want: []string{"data-i18n=\"page.events\">安全事件", "REDACT", "pii.email.v1"}},
 		{name: "events detection filter partial", path: "/dashboard/partials/events?detection_type=PII", want: []string{"events-table", "PII", "pii.email.v1"}},
 		{name: "tools", path: "/dashboard/tools", want: []string{"email.send", "PENDING", "/api/approvals/" + approvalID + "/approve"}},
-		{name: "request detail", path: "/dashboard/requests/" + requestID, want: []string{"Request Detail", "pii.email.v1", "INPUT_POLICY"}},
-		{name: "tool detail", path: "/dashboard/tools/" + toolID, want: []string{"Tool Detail", "Approval", approvalID}},
+		{name: "request detail", path: "/dashboard/requests/" + requestID, want: []string{"data-i18n=\"page.request\">请求详情", "pii.email.v1", "INPUT_POLICY"}},
+		{name: "tool detail", path: "/dashboard/tools/" + toolID, want: []string{"data-i18n=\"page.tool\">工具详情", "data-i18n=\"table.approval\">审批", approvalID}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -83,7 +83,7 @@ func TestDashboardBenchmarkShowsPersistedSafeResults(t *testing.T) {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, want := range []string{"benchmark-v1", "Category Metrics", "pii-safe", "decision mismatch", "N/A"} {
+	for _, want := range []string{"benchmark-v1", "data-i18n=\"benchmark.categoryMetrics\">分类指标", "pii-safe", "decision mismatch", "N/A"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %q: %s", want, body)
 		}
@@ -105,12 +105,52 @@ func TestDashboardNotFoundAndStaticAsset(t *testing.T) {
 	}{
 		{path: "/dashboard/requests/missing", code: http.StatusNotFound},
 		{path: "/dashboard/static/dashboard.css", code: http.StatusOK},
+		{path: "/dashboard/static/dashboard.js", code: http.StatusOK},
 	} {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.code {
 			t.Fatalf("%s status = %d, want %d", test.path, response.Code, test.code)
+		}
+	}
+}
+
+func TestDashboardLocalizationAndHealthShell(t *testing.T) {
+	handler, _, _, _, _, _ := testDashboard(t)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`<html lang="zh-CN">`,
+		`data-language="zh"`,
+		`data-language="en"`,
+		`id="service-health"`,
+		`data-provider-mode="unknown"`,
+		`src="/dashboard/static/dashboard.js"`,
+		`data-i18n="page.overview">总览`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{`href="/health"`, "总览 Overview", "安全事件 Security Events", "工具调用与审批 Tool &amp; Approval"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("default Chinese shell contains obsolete mixed or linked content %q", forbidden)
+		}
+	}
+
+	asset := httptest.NewRecorder()
+	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/dashboard/static/dashboard.js", nil))
+	if asset.Code != http.StatusOK {
+		t.Fatalf("javascript status = %d", asset.Code)
+	}
+	for _, want := range []string{`localStorage.setItem(storageKey, language)`, `"page.overview": "Overview"`, `fetch("/health"`, `"approval.approve": "Approve"`} {
+		if !strings.Contains(asset.Body.String(), want) {
+			t.Fatalf("javascript missing %q", want)
 		}
 	}
 }

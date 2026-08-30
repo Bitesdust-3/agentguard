@@ -16,19 +16,22 @@ import (
 	"github.com/bitesdust/agentguard/internal/benchmark"
 )
 
-//go:embed templates/*.html static/dashboard.css
+//go:embed templates/*.html static/*
 var assets embed.FS
 
 type Handler struct {
 	db        *sql.DB
 	version   string
+	provider  string
 	templates map[string]*template.Template
 }
 
 type pageData struct {
 	Title     string
+	TitleKey  string
 	Active    string
 	Version   string
+	Provider  string
 	Overview  overviewData
 	Events    eventsData
 	Tools     toolsData
@@ -156,17 +159,19 @@ type approvalRow struct {
 }
 
 // New constructs a read-only dashboard over the existing SQLite tables.
-func New(db *sql.DB, version string) (*Handler, error) {
+func New(db *sql.DB, version string, providerMode ...string) (*Handler, error) {
 	if db == nil {
 		return nil, fmt.Errorf("dashboard database must not be nil")
 	}
 	functions := template.FuncMap{
-		"formatTime":     formatTime,
-		"formatTimePtr":  formatTimePtr,
-		"formatScore":    formatScore,
-		"benchmarkRate":  benchmarkRate,
-		"decisionClass":  decisionClass,
-		"detectionClass": detectionClass,
+		"formatTime":             formatTime,
+		"formatTimePtr":          formatTimePtr,
+		"formatScore":            formatScore,
+		"benchmarkRate":          benchmarkRate,
+		"benchmarkCategoryLabel": benchmarkCategoryLabel,
+		"decisionClass":          decisionClass,
+		"detectionLabel":         detectionLabel,
+		"detectionClass":         detectionClass,
 	}
 	templates := make(map[string]*template.Template, 6)
 	for _, name := range []string{"overview", "events", "tools", "request", "tool", "benchmark"} {
@@ -176,7 +181,11 @@ func New(db *sql.DB, version string) (*Handler, error) {
 		}
 		templates[name] = tmpl
 	}
-	return &Handler{db: db, version: version, templates: templates}, nil
+	provider := "unknown"
+	if len(providerMode) > 0 && strings.TrimSpace(providerMode[0]) != "" {
+		provider = providerMode[0]
+	}
+	return &Handler{db: db, version: version, provider: provider, templates: templates}, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +206,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requestDetail(w, r, strings.TrimPrefix(r.URL.Path, "/dashboard/requests/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dashboard/tools/"):
 		h.toolDetail(w, r, strings.TrimPrefix(r.URL.Path, "/dashboard/tools/"))
-	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/static/dashboard.css":
+	case r.Method == http.MethodGet && (r.URL.Path == "/dashboard/static/dashboard.css" || r.URL.Path == "/dashboard/static/dashboard.js"):
 		h.static(w, r)
 	default:
 		http.NotFound(w, r)
@@ -207,10 +216,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) benchmark(w http.ResponseWriter, r *http.Request) {
 	data, err := h.loadBenchmark(r.Context(), r.URL.Query().Get("run"))
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, "benchmark", "base", pageData{Title: "Benchmark", Active: "benchmark", Version: h.version, Benchmark: data})
+	h.render(w, "benchmark", "base", pageData{Title: "安全评测", TitleKey: "page.benchmark", Active: "benchmark", Version: h.version, Provider: h.provider, Benchmark: data})
 }
 
 func (h *Handler) loadBenchmark(ctx context.Context, requestedRunID string) (benchmarkData, error) {
@@ -292,21 +301,21 @@ func (h *Handler) loadBenchmark(ctx context.Context, requestedRunID string) (ben
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request, partial bool) {
 	data, err := h.loadOverview(r.Context())
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
 	if partial {
 		h.render(w, "overview", "overview_content", pageData{Overview: data})
 		return
 	}
-	h.render(w, "overview", "base", pageData{Title: "Overview", Active: "overview", Version: h.version, Overview: data})
+	h.render(w, "overview", "base", pageData{Title: "总览", TitleKey: "page.overview", Active: "overview", Version: h.version, Provider: h.provider, Overview: data})
 }
 
 func (h *Handler) events(w http.ResponseWriter, r *http.Request, partial bool) {
 	filters := eventFilters{EventType: r.URL.Query().Get("event_type"), Decision: r.URL.Query().Get("decision"), DetectionType: r.URL.Query().Get("detection_type")}
 	items, err := audit.New(h.db).List(r.Context(), audit.Filter{EventType: filters.EventType, Decision: filters.Decision, DetectionType: filters.DetectionType, Limit: 100})
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
 	data := eventsData{Items: items, Filters: filters}
@@ -314,58 +323,97 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request, partial bool) {
 		h.render(w, "events", "events_table", pageData{Events: data})
 		return
 	}
-	h.render(w, "events", "base", pageData{Title: "Security Events", Active: "events", Version: h.version, Events: data})
+	h.render(w, "events", "base", pageData{Title: "安全事件", TitleKey: "page.events", Active: "events", Version: h.version, Provider: h.provider, Events: data})
 }
 
 func (h *Handler) tools(w http.ResponseWriter, r *http.Request) {
 	items, err := h.listTools(r.Context())
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, "tools", "base", pageData{Title: "Tools & Approval", Active: "tools", Version: h.version, Tools: toolsData{Items: items}})
+	h.render(w, "tools", "base", pageData{Title: "工具调用与审批", TitleKey: "page.tools", Active: "tools", Version: h.version, Provider: h.provider, Tools: toolsData{Items: items}})
 }
 
 func (h *Handler) requestDetail(w http.ResponseWriter, r *http.Request, id string) {
 	detail, err := h.loadRequestDetail(r.Context(), id)
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
 	if !detail.Found {
 		http.NotFound(w, r)
 		return
 	}
-	h.render(w, "request", "base", pageData{Title: "Request Detail", Active: "events", Version: h.version, Request: detail})
+	h.render(w, "request", "base", pageData{Title: "请求详情", TitleKey: "page.request", Active: "events", Version: h.version, Provider: h.provider, Request: detail})
 }
 
 func (h *Handler) toolDetail(w http.ResponseWriter, r *http.Request, id string) {
 	detail, err := h.loadToolDetail(r.Context(), id)
 	if err != nil {
-		http.Error(w, "dashboard query failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘查询失败", http.StatusInternalServerError)
 		return
 	}
 	if !detail.Found {
 		http.NotFound(w, r)
 		return
 	}
-	h.render(w, "tool", "base", pageData{Title: "Tool Detail", Active: "tools", Version: h.version, Tool: detail})
+	h.render(w, "tool", "base", pageData{Title: "工具详情", TitleKey: "page.tool", Active: "tools", Version: h.version, Provider: h.provider, Tool: detail})
 }
 
-func (h *Handler) static(w http.ResponseWriter, _ *http.Request) {
-	content, err := fs.ReadFile(assets, "static/dashboard.css")
+func (h *Handler) static(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/dashboard/static/")
+	contentType := "text/css; charset=utf-8"
+	if name == "dashboard.js" {
+		contentType = "text/javascript; charset=utf-8"
+	}
+	content, err := fs.ReadFile(assets, "static/"+name)
 	if err != nil {
-		http.Error(w, "asset unavailable", http.StatusInternalServerError)
+		http.Error(w, "仪表盘资源不可用", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(content)
 }
 
 func (h *Handler) render(w http.ResponseWriter, page, name string, data pageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.templates[page].ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, "dashboard render failed", http.StatusInternalServerError)
+		http.Error(w, "仪表盘渲染失败", http.StatusInternalServerError)
+	}
+}
+
+func detectionLabel(value string) string {
+	switch value {
+	case "PII":
+		return "敏感信息 PII"
+	case "SECRET":
+		return "密钥/凭据 Secret"
+	case "PROMPT_INJECTION":
+		return "提示词注入 Prompt Injection"
+	default:
+		return value
+	}
+}
+
+func benchmarkCategoryLabel(value string) string {
+	switch value {
+	case benchmark.CategoryNormal:
+		return "正常请求"
+	case benchmark.CategoryPII:
+		return "敏感信息 PII"
+	case benchmark.CategorySecret:
+		return "密钥/凭据 Secret"
+	case benchmark.CategoryDirect:
+		return "直接提示词注入 Prompt Injection"
+	case benchmark.CategoryIndirect:
+		return "间接提示词注入 Prompt Injection"
+	case benchmark.CategoryTool:
+		return "工具滥用"
+	case benchmark.CategoryBypass:
+		return "审批绕过"
+	default:
+		return value
 	}
 }
 

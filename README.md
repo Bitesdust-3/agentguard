@@ -131,6 +131,12 @@ A Prompt Injection request is stopped before Provider access and recorded as a B
 
 ![AgentGuard Prompt Injection Block](docs/images/prompt-injection-block.png)
 
+## Demo
+
+See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool workflows.
+
+![AgentGuard security workflow demo](docs/images/agentguard-demo.gif)
+
 ## Security Benchmark
 
 Run the manually reviewed Curated Benchmark v1 with its fixed reproducibility seed:

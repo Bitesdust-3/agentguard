@@ -137,6 +137,8 @@ See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool wor
 
 ![AgentGuard security workflow demo](docs/images/agentguard-demo.gif)
 
+[▶ Watch Full Demo](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
+
 ## Security Benchmark
 
 Run the manually reviewed Curated Benchmark v1 with its fixed reproducibility seed:

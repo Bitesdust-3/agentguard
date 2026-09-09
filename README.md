@@ -4,6 +4,8 @@ AgentGuard is an **AI Agent Security Gateway** (AI Agent 安全控制网关) and
 
 > **Status: v1.0.0**
 
+AgentGuard v1.0.0 is a runnable security-engineering prototype with documented deployment limitations.
+
 ## Why AgentGuard
 
 LLM applications need controls around both model traffic and agent actions. AgentGuard separates risk detection from policy decisions, minimizes sensitive audit data, and remains usable without an external model or API key.
@@ -15,7 +17,7 @@ LLM applications need controls around both model traffic and agent actions. Agen
 - **Output Guard** — applies the same detection and policy model before Provider output reaches the client.
 - **Tool Policy and Human Approval** — configuration-driven `PASS`, `APPROVAL`, and `BLOCK` decisions with a mock-only executor.
 - **Audit Trail** — fail-closed SQLite persistence correlates requests, detections, policy decisions, Tool Calls, and approvals.
-- **Security Benchmark** — reproducible evaluation using the same production Detector and Policy logic.
+- **Security Benchmark** — reproducible evaluation using the same runtime Detector and Policy logic.
 - **OpenAI-Compatible Provider** — one configurable upstream provider alongside the deterministic local Mock Provider.
 
 The Mock Provider and Tool Executor perform no real AI inference or external action.

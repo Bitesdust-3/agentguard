@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config contains only the settings implemented in the current stage.
+// Config contains the runtime settings supported by AgentGuard v1.0.
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Storage   StorageConfig   `yaml:"storage"`

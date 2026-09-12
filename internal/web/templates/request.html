@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="detail-identity"><a href="/dashboard/events"><span aria-hidden="true">←</span> <span data-i18n="back.events">返回安全事件</span></a><div><small data-i18n="label.requestID">请求 ID</small><h2>{{.Request.ID}}</h2></div><dl><div><dt data-i18n="detail.model">模型</dt><dd>{{.Request.Model}}</dd></div><div><dt data-i18n="table.state">状态</dt><dd>{{.Request.Status}}</dd></div><div><dt data-i18n="detail.finalDecision">最终决策</dt><dd class="tag {{decisionClass .Request.Decision}}">{{.Request.Decision}}</dd></div></dl></section>
+{{if eq .Request.Decision "BLOCK"}}<div class="decision-banner block"><strong>BLOCK</strong><span data-i18n="detail.requestBlocked">请求已被安全策略阻断</span></div>{{else if eq .Request.Decision "REDACT"}}<div class="decision-banner redact"><strong>REDACT</strong><span data-i18n="detail.sensitiveContentRedacted">敏感内容已按策略脱敏</span></div>{{end}}
 
 <section class="process-console">
   <div class="process-title"><span data-i18n="label.securityTrace">安全处理轨迹</span><h2 data-i18n="detail.processingTrace">安全处理轨迹</h2></div>

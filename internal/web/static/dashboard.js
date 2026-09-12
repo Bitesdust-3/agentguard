@@ -9,8 +9,8 @@
       "nav.events": "安全事件",
       "nav.tools": "工具调用与审批",
       "nav.benchmark": "安全评测",
-      "brand.controlPlane": "AI 安全控制平面",
-      "brand.policyWorkspace": "安全策略工作区",
+      "brand.controlPlane": "AI Agent 安全网关",
+      "brand.policyWorkspace": "策略执行已启用",
       "console.title": "本地安全控制台",
       "runtime.provider": "Provider 模式",
       "runtime.version": "版本",
@@ -107,6 +107,10 @@
       "detail.processingTrace": "安全处理轨迹",
       "detail.requestReceived": "请求已接收",
       "detail.auditTimeline": "安全审计时间线",
+      "detail.requestBlocked": "请求已被安全策略阻断",
+      "detail.sensitiveContentRedacted": "敏感内容已按策略脱敏",
+      "detail.toolExecutionDenied": "危险工具操作已被 Tool Policy 阻断",
+      "detail.awaitingApproval": "敏感工具操作正在等待人工审批",
       "tool.call": "工具调用",
       "tool.arguments": "参数摘要",
       "tool.result": "执行结果",
@@ -139,6 +143,7 @@
       "benchmark.actual": "实际",
       "benchmark.rule": "规则",
       "benchmark.safeReason": "安全原因",
+      "benchmark.lowerIsBetter": "越低越好",
       "empty.audit": "暂无安全审计事件。",
       "empty.events": "当前筛选条件下没有安全事件。",
       "empty.tools": "暂无工具调用记录。",
@@ -158,8 +163,8 @@
       "nav.events": "Security Events",
       "nav.tools": "Tool & Approval",
       "nav.benchmark": "Benchmark",
-      "brand.controlPlane": "AI SECURITY CONTROL PLANE",
-      "brand.policyWorkspace": "SECURITY POLICY WORKSPACE",
+      "brand.controlPlane": "AI Agent Security Gateway",
+      "brand.policyWorkspace": "Policy enforcement active",
       "console.title": "LOCAL SECURITY CONSOLE",
       "runtime.provider": "Provider Mode",
       "runtime.version": "Version",
@@ -256,6 +261,10 @@
       "detail.processingTrace": "Security Processing Trace",
       "detail.requestReceived": "Request Received",
       "detail.auditTimeline": "Audit Timeline",
+      "detail.requestBlocked": "Request blocked by security policy",
+      "detail.sensitiveContentRedacted": "Sensitive content redacted by policy",
+      "detail.toolExecutionDenied": "Destructive tool action blocked by Tool Policy",
+      "detail.awaitingApproval": "Sensitive tool action is awaiting human approval",
       "tool.call": "Tool Call",
       "tool.arguments": "Arguments Summary",
       "tool.result": "Execution Result",
@@ -288,6 +297,7 @@
       "benchmark.actual": "Actual",
       "benchmark.rule": "Rule",
       "benchmark.safeReason": "Safe Reason",
+      "benchmark.lowerIsBetter": "Lower is better",
       "empty.audit": "No security audit events.",
       "empty.events": "No security events match the current filters.",
       "empty.tools": "No Tool Calls.",
@@ -350,6 +360,19 @@
     if (titleKey) { document.title = `${message(titleKey)} · AgentGuard`; }
   }
 
+  function formatBenchmarkRates(root = document) {
+    root.querySelectorAll("[data-rate]").forEach((element) => {
+      const value = Number.parseFloat(element.dataset.rate);
+      element.textContent = Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : element.dataset.rate;
+    });
+  }
+
+  function revealMetricBars(root = document) {
+    window.requestAnimationFrame(() => {
+      root.querySelectorAll(".metric-progress, .category-progress").forEach((element) => element.classList.add("is-visible"));
+    });
+  }
+
   function setLanguage(nextLanguage) {
     language = nextLanguage === "en" ? "en" : "zh";
     try { localStorage.setItem(storageKey, language); } catch (_) {}
@@ -387,7 +410,13 @@
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.addEventListener("click", () => setLanguage(button.dataset.language));
   });
-  document.addEventListener("htmx:afterSwap", (event) => applyLanguage(event.detail.target));
+  document.addEventListener("htmx:afterSwap", (event) => {
+    applyLanguage(event.detail.target);
+    formatBenchmarkRates(event.detail.target);
+    revealMetricBars(event.detail.target);
+  });
   applyLanguage(document);
+  formatBenchmarkRates(document);
+  revealMetricBars(document);
   refreshHealth();
 })();

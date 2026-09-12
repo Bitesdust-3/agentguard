@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+configs/config.local.yaml
 
 # Go build and test artifacts
 bin/

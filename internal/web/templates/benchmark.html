@@ -1,22 +1,22 @@
 {{define "content"}}
 {{if .Benchmark.Found}}
 <section class="benchmark-hero">
-  <div class="primary-score"><span data-i18n="benchmark.accuracy">准确率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}</strong><small>{{.Benchmark.DatasetVersion}} · {{.Benchmark.Total}} <i data-i18n="benchmark.samples">样本数</i></small></div>
-  <div class="decision-score"><span data-i18n="benchmark.decisionAccuracy">决策准确率</span><strong>{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}</strong><p data-i18n="benchmark.honestNote">真实展示误报、漏报与策略偏差</p></div>
+  <div class="primary-score"><span data-i18n="benchmark.accuracy">准确率</span><strong data-rate="{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}">{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Accuracy}}</strong><div class="metric-progress positive" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.Accuracy}}"></i></div><small>{{.Benchmark.DatasetVersion}} · {{.Benchmark.Total}} <i data-i18n="benchmark.samples">样本数</i></small></div>
+  <div class="decision-score"><span data-i18n="benchmark.decisionAccuracy">决策准确率</span><strong data-rate="{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}">{{printf "%.3f" .Benchmark.Metrics.DecisionAccuracy}}</strong><div class="metric-progress positive" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.DecisionAccuracy}}"></i></div><p data-i18n="benchmark.honestNote">真实展示误报、漏报与策略偏差</p></div>
   <div class="latency-block"><span data-i18n="benchmark.averageLatency">平均额外延迟</span><strong>{{.Benchmark.Metrics.AverageLatency}}</strong><small>P50 {{.Benchmark.Metrics.P50}} / P95 {{.Benchmark.Metrics.P95}}</small></div>
 </section>
 
 <section class="metric-ribbon">
-  <div><span data-i18n="benchmark.precision">精确率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}</strong></div>
-  <div><span data-i18n="benchmark.recall">召回率</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}</strong></div>
-  <div class="warning"><span data-i18n="benchmark.fpr">误报率 FPR</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}</strong></div>
-  <div class="danger"><span data-i18n="benchmark.fnr">漏报率 FNR</span><strong>{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}</strong></div>
+  <div><span data-i18n="benchmark.precision">精确率</span><strong data-rate="{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}">{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Precision}}</strong><div class="metric-progress positive" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.Precision}}"></i></div></div>
+  <div><span data-i18n="benchmark.recall">召回率</span><strong data-rate="{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}">{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.Recall}}</strong><div class="metric-progress positive" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.Recall}}"></i></div></div>
+  <div class="warning"><span data-i18n="benchmark.fpr">误报率 FPR</span><strong data-rate="{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}">{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalsePositiveRate}}</strong><small data-i18n="benchmark.lowerIsBetter">越低越好</small><div class="metric-progress negative" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.FalsePositiveRate}}"></i></div></div>
+  <div class="danger"><span data-i18n="benchmark.fnr">漏报率 FNR</span><strong data-rate="{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}">{{benchmarkRate .Benchmark.Metrics .Benchmark.Metrics.FalseNegativeRate}}</strong><small data-i18n="benchmark.lowerIsBetter">越低越好</small><div class="metric-progress negative" aria-hidden="true"><i style="--metric-value:{{.Benchmark.Metrics.FalseNegativeRate}}"></i></div></div>
 </section>
 
 <div class="benchmark-layout">
   <section class="category-console">
     <div class="section-heading"><div><span data-i18n="label.controlPerformance">控制性能</span><h2 data-i18n="benchmark.categoryMetrics">分类指标</h2></div></div>
-    <div class="category-bars">{{range .Benchmark.Categories}}<article><div><strong data-benchmark-category="{{.Name}}">{{benchmarkCategoryLabel .Name}}</strong><span>{{.Metrics.Passed}} / {{.Metrics.SampleCount}}</span></div><meter min="0" max="1" value="{{.Metrics.DecisionAccuracy}}">{{printf "%.3f" .Metrics.DecisionAccuracy}}</meter><p><span data-i18n="benchmark.accuracy">准确率</span> {{benchmarkRate .Metrics .Metrics.Accuracy}} · <span data-i18n="benchmark.recall">召回率</span> {{benchmarkRate .Metrics .Metrics.Recall}} · <span data-i18n="benchmark.averageLatencyShort">平均额外延迟</span> {{.Metrics.AverageLatency}}</p></article>{{end}}</div>
+    <div class="category-bars">{{range .Benchmark.Categories}}<article><div><strong data-benchmark-category="{{.Name}}">{{benchmarkCategoryLabel .Name}}</strong><span>{{.Metrics.Passed}} / {{.Metrics.SampleCount}}</span></div><div class="category-progress" aria-hidden="true"><i style="--metric-value:{{.Metrics.DecisionAccuracy}}"></i></div><p><span data-i18n="benchmark.accuracy">准确率</span> <b data-rate="{{benchmarkRate .Metrics .Metrics.Accuracy}}">{{benchmarkRate .Metrics .Metrics.Accuracy}}</b> · <span data-i18n="benchmark.recall">召回率</span> <b data-rate="{{benchmarkRate .Metrics .Metrics.Recall}}">{{benchmarkRate .Metrics .Metrics.Recall}}</b> · <span data-i18n="benchmark.averageLatencyShort">平均额外延迟</span> {{.Metrics.AverageLatency}}</p></article>{{end}}</div>
   </section>
 
   <aside class="benchmark-meta">

@@ -54,19 +54,40 @@ Detector components report what was found. Policy components decide what to do. 
 Requirements: Go 1.27 and a C compiler for `go-sqlite3`.
 
 ```bash
-go run ./cmd/agentguard -config configs/config.example.yaml
+git clone https://github.com/Bitesdust-3/agentguard.git
+cd agentguard
+cp configs/config.example.yaml configs/config.local.yaml
+go build -o bin/agentguard ./cmd/agentguard
+./bin/agentguard -config configs/config.local.yaml
 ```
 
 In another terminal:
 
 ```bash
-curl --noproxy '*' --fail http://127.0.0.1:8080/health
-curl --noproxy '*' --fail -X POST http://127.0.0.1:8080/v1/chat/completions \
+curl --noproxy '*' --fail http://127.0.0.1:18080/health
+curl --noproxy '*' --fail -X POST http://127.0.0.1:18080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello AgentGuard"}]}'
 ```
 
-Mock mode is the default and requires neither network access nor an API key. Runtime SQLite data is written under the ignored `data/` directory.
+Open `http://<SERVER_IP>:18080/dashboard` from another machine on the same trusted network. Mock mode is the default and requires neither network access nor an API key. The copied local configuration and runtime SQLite data are ignored by Git.
+
+### Persistent systemd service
+
+Build the binary as shown above, then generate the systemd unit from [`deploy/systemd/agentguard.service.example`](deploy/systemd/agentguard.service.example), replacing its two placeholders with values for the target host:
+
+```bash
+sed -e "s|<USER>|$(id -un)|g" \
+  -e "s|<AGENTGUARD_DIR>|$PWD|g" \
+  deploy/systemd/agentguard.service.example \
+  | sudo tee /etc/systemd/system/agentguard.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable --now agentguard
+systemctl status agentguard --no-pager
+curl --noproxy '*' --fail http://127.0.0.1:18080/health
+```
+
+After local changes, [`scripts/restart-local.sh`](scripts/restart-local.sh) rebuilds the binary, restarts the installed service, displays status, and checks health. It does not install the service or edit system configuration.
 
 ### Docker Compose
 
@@ -91,7 +112,7 @@ docker compose down
 - Tool Calls and approvals: `/dashboard/tools`
 - Latest persisted Benchmark: `/dashboard/benchmark`
 
-The Dashboard is a local administrative display over existing audit and benchmark data. Its lightweight Chinese/English switch defaults to Chinese and preserves the selected language in the browser; security decision values remain unchanged. It does not define core entities or policy behavior.
+The Dashboard is a high-density security operations console over existing audit and benchmark data. Its Chinese/English switch defaults to Chinese and persists the selected language in the browser. Responsive tables, correlated request and Tool timelines, safe summaries, approval controls, and percentage-based Benchmark metrics improve investigation without changing security decision values or policy behavior.
 
 ## Dashboard Preview
 
@@ -139,7 +160,9 @@ See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool wor
 
 ![AgentGuard security workflow demo](docs/images/agentguard-demo.gif)
 
-[▶ Watch Full Demo](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
+[▶ Watch the v1.0 historical full demo](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
+
+The current interface is shown in the GIF and screenshots above. The linked full walkthrough is retained as the historical v1.0 demo.
 
 ## Security Benchmark
 
@@ -159,12 +182,13 @@ Current default-policy result:
 | Metric | Result |
 | --- | ---: |
 | Samples | 266 |
-| Accuracy | 0.911 |
-| Precision | 0.950 |
-| Recall | 0.854 |
-| False Positive Rate | 0.040 |
-| False Negative Rate | 0.146 |
-| Decision Accuracy | 0.929 |
+| Accuracy | 91.1% |
+| Precision | 95.0% |
+| Recall | 85.4% |
+| False Positive Rate | 4.0% |
+| False Negative Rate | 14.6% |
+| Decision Accuracy | 92.9% |
+| Confusion Matrix | TP 76 · FP 4 · TN 97 · FN 13 |
 | Added Latency (Docker verification run) | Average 23.408 µs; P50 25.328 µs; P95 56.565 µs |
 
 Latency depends on the host and is measured on each run. The result is not presented as state of the art. Known misses and false positives remain visible: some paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type.
@@ -185,11 +209,11 @@ With AgentGuard running in Mock mode, run the fictional end-to-end demo:
 6. `file.delete` → `BLOCK`
 7. Review the Audit Dashboard and Benchmark Dashboard
 
-For a non-default port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:18080 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
+For a different port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:19090 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
 
 ## Configuration
 
-The local sample is [`configs/config.example.yaml`](configs/config.example.yaml); Docker uses [`configs/config.docker.yaml`](configs/config.docker.yaml) solely to listen on `0.0.0.0` and store SQLite data under `/app/data`.
+Copy [`configs/config.example.yaml`](configs/config.example.yaml) to the ignored `configs/config.local.yaml` before making local changes. The public example listens on `0.0.0.0:18080`; expose it only on a trusted network because v1.0 has no authentication. Docker uses [`configs/config.docker.yaml`](configs/config.docker.yaml) and stores SQLite data under `/app/data`.
 
 ### Mock Provider
 
@@ -217,7 +241,7 @@ provider:
 
 ```bash
 export AGENTGUARD_PROVIDER_API_KEY='your-api-key'
-go run ./cmd/agentguard -config /path/to/your-local-config.yaml
+./bin/agentguard -config configs/config.local.yaml
 ```
 
 Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard appends `/v1/chat/completions` to the configured service base URL, always uses the configured upstream model, and returns sanitized upstream errors.
@@ -274,9 +298,10 @@ These are local-admin endpoints in v1.0 and have no authentication layer.
 .
 ├── cmd/                 # AgentGuard and Benchmark entry points
 ├── configs/             # Local and Docker-safe configuration examples
+├── deploy/systemd/      # Generic persistent-service unit template
 ├── docs/                # Frozen v1 architecture contract
 ├── internal/            # App, gateway, detection, policy, provider, tools, audit, benchmark, web
-├── scripts/             # Small reproducible demo
+├── scripts/             # Reproducible demo and local service restart helper
 ├── tests/benchmark/     # Development and curated fictional datasets
 ├── Dockerfile
 ├── docker-compose.yml

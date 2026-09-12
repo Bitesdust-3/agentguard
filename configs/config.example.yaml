@@ -1,7 +1,7 @@
 # Public development configuration. Copy and adjust locally as needed.
 server:
-  host: 127.0.0.1
-  port: 8080
+  host: 0.0.0.0
+  port: 18080
 
 storage:
   sqlite_path: data/agentguard.db

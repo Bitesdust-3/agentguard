@@ -12,14 +12,14 @@
 <body data-title-key="{{.TitleKey}}">
   <div class="shell">
     <aside class="sidebar">
-      <a class="brand" href="/dashboard"><span class="brand-mark">AG</span><span class="brand-copy"><strong>AgentGuard</strong><small data-i18n="brand.controlPlane">AI 安全控制平面</small></span></a>
+      <a class="brand" href="/dashboard"><span class="brand-mark" aria-hidden="true">AG</span><span class="brand-copy"><strong>AgentGuard</strong><small data-i18n="brand.controlPlane">AI Agent 安全网关</small></span></a>
       <nav data-i18n-aria-label="nav.label" aria-label="仪表盘导航">
         <a class="{{if eq .Active "overview"}}active{{end}}" href="/dashboard"><strong data-i18n="nav.overview">总览</strong></a>
         <a class="{{if eq .Active "events"}}active{{end}}" href="/dashboard/events"><strong data-i18n="nav.events">安全事件</strong></a>
         <a class="{{if eq .Active "tools"}}active{{end}}" href="/dashboard/tools"><strong data-i18n="nav.tools">工具调用与审批</strong></a>
         <a class="{{if eq .Active "benchmark"}}active{{end}}" href="/dashboard/benchmark"><strong data-i18n="nav.benchmark">安全评测</strong></a>
       </nav>
-      <div class="rail-foot"><span></span><p data-i18n="brand.policyWorkspace">策略工作区</p></div>
+      <div class="rail-foot"><span aria-hidden="true"></span><p data-i18n="brand.policyWorkspace">策略执行已启用</p></div>
     </aside>
     <main class="content">
       <header>

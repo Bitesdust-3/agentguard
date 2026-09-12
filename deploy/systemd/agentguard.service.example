@@ -1,0 +1,17 @@
+[Unit]
+Description=AgentGuard AI Agent Security Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=<AGENTGUARD_DIR>
+ExecStart=<AGENTGUARD_DIR>/bin/agentguard -config <AGENTGUARD_DIR>/configs/config.local.yaml
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

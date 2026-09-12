@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-base_url=${AGENTGUARD_DEMO_URL:-http://127.0.0.1:8080}
+base_url=${AGENTGUARD_DEMO_URL:-http://127.0.0.1:18080}
 
 request() {
   label=$1

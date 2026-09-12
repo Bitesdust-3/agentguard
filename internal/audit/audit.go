@@ -6,10 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/detection"
+	"github.com/bitesdust/agentguard/internal/identifier"
 	"github.com/bitesdust/agentguard/internal/policy"
 )
 
@@ -110,11 +110,9 @@ type Filter struct {
 
 type Store struct{ db *sql.DB }
 
-var sequence atomic.Uint64
-
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-func nextID() string { return fmt.Sprintf("audit_%d", sequence.Add(1)) }
+func nextID() string { return identifier.New("audit") }
 
 func timestamp(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
 

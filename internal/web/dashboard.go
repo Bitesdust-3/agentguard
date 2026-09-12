@@ -20,24 +20,35 @@ import (
 var assets embed.FS
 
 type Handler struct {
-	db        *sql.DB
-	version   string
-	provider  string
-	templates map[string]*template.Template
+	db                 *sql.DB
+	version            string
+	provider           string
+	providerModel      string
+	providerConfigured bool
+	templates          map[string]*template.Template
+}
+
+// Runtime contains non-sensitive Provider metadata safe to display locally.
+type Runtime struct {
+	ProviderMode       string
+	ProviderModel      string
+	ProviderConfigured bool
 }
 
 type pageData struct {
-	Title     string
-	TitleKey  string
-	Active    string
-	Version   string
-	Provider  string
-	Overview  overviewData
-	Events    eventsData
-	Tools     toolsData
-	Request   requestDetail
-	Tool      toolDetail
-	Benchmark benchmarkData
+	Title              string
+	TitleKey           string
+	Active             string
+	Version            string
+	Provider           string
+	ProviderModel      string
+	ProviderConfigured bool
+	Overview           overviewData
+	Events             eventsData
+	Tools              toolsData
+	Request            requestDetail
+	Tool               toolDetail
+	Benchmark          benchmarkData
 }
 
 type benchmarkData struct {
@@ -159,7 +170,7 @@ type approvalRow struct {
 }
 
 // New constructs a read-only dashboard over the existing SQLite tables.
-func New(db *sql.DB, version string, providerMode ...string) (*Handler, error) {
+func New(db *sql.DB, version string, runtimeDetails ...Runtime) (*Handler, error) {
 	if db == nil {
 		return nil, fmt.Errorf("dashboard database must not be nil")
 	}
@@ -173,19 +184,25 @@ func New(db *sql.DB, version string, providerMode ...string) (*Handler, error) {
 		"detectionLabel":         detectionLabel,
 		"detectionClass":         detectionClass,
 	}
-	templates := make(map[string]*template.Template, 6)
-	for _, name := range []string{"overview", "events", "tools", "request", "tool", "benchmark"} {
+	templates := make(map[string]*template.Template, 7)
+	for _, name := range []string{"overview", "events", "tools", "playground", "request", "tool", "benchmark"} {
 		tmpl, err := template.New("base.html").Funcs(functions).ParseFS(assets, "templates/base.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse dashboard %s template: %w", name, err)
 		}
 		templates[name] = tmpl
 	}
-	provider := "unknown"
-	if len(providerMode) > 0 && strings.TrimSpace(providerMode[0]) != "" {
-		provider = providerMode[0]
+	runtime := Runtime{ProviderMode: "unknown", ProviderModel: "—"}
+	if len(runtimeDetails) > 0 {
+		runtime = runtimeDetails[0]
+		if strings.TrimSpace(runtime.ProviderMode) == "" {
+			runtime.ProviderMode = "unknown"
+		}
+		if strings.TrimSpace(runtime.ProviderModel) == "" {
+			runtime.ProviderModel = "—"
+		}
 	}
-	return &Handler{db: db, version: version, provider: provider, templates: templates}, nil
+	return &Handler{db: db, version: version, provider: runtime.ProviderMode, providerModel: runtime.ProviderModel, providerConfigured: runtime.ProviderConfigured, templates: templates}, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +217,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.events(w, r, true)
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/tools":
 		h.tools(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/playground":
+		h.playground(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/benchmark":
 		h.benchmark(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/dashboard/requests/"):
@@ -211,6 +230,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (h *Handler) playground(w http.ResponseWriter, _ *http.Request) {
+	h.render(w, "playground", "base", pageData{
+		Title:              "安全测试台",
+		TitleKey:           "page.playground",
+		Active:             "playground",
+		Version:            h.version,
+		Provider:           h.provider,
+		ProviderModel:      h.providerModel,
+		ProviderConfigured: h.providerConfigured,
+	})
 }
 
 func (h *Handler) benchmark(w http.ResponseWriter, r *http.Request) {

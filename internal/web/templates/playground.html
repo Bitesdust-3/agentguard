@@ -1,0 +1,60 @@
+{{define "content"}}
+<section class="playground-console" data-playground data-provider-model="{{.ProviderModel}}" data-provider-configured="{{.ProviderConfigured}}">
+  <div class="playground-grid">
+    <section class="playground-input" aria-labelledby="playground-input-title">
+      <div class="section-label"><span>INTEGRATION TEST</span><h2 id="playground-input-title" data-i18n="playground.inputTitle">请求测试</h2></div>
+      <div class="provider-panel">
+        <div><span data-i18n="playground.provider">Provider</span><strong data-provider-mode="{{.Provider}}">{{.Provider}}</strong></div>
+        <div><span data-i18n="playground.model">模型</span><strong>{{.ProviderModel}}</strong></div>
+        <div><span data-i18n="playground.configuration">配置状态</span>{{if .ProviderConfigured}}<strong class="provider-ready" data-i18n="playground.configured">已配置</strong>{{else}}<strong class="provider-missing" data-i18n="playground.unconfigured">未配置</strong>{{end}}</div>
+      </div>
+
+      <div class="sample-actions" aria-label="Prompt samples">
+        <button type="button" class="secondary" data-playground-sample="normal" data-i18n="playground.sampleNormal">正常请求</button>
+        <button type="button" class="secondary" data-playground-sample="pii" data-i18n="playground.samplePII">PII 测试</button>
+        <button type="button" class="secondary" data-playground-sample="injection" data-i18n="playground.sampleInjection">Prompt Injection 测试</button>
+      </div>
+
+      <form id="playground-form">
+        <label for="playground-prompt" data-i18n="playground.prompt">Prompt</label>
+        <textarea id="playground-prompt" rows="9" maxlength="12000" required data-i18n-placeholder="playground.placeholder" placeholder="输入用于验证安全链路的 Prompt"></textarea>
+        <div class="playground-submit-row">
+          <p data-i18n="playground.privacyNote">仅提交到当前 AgentGuard；页面不接收或保存 API Key。</p>
+          <button type="submit" class="playground-submit"><span data-submit-label data-i18n="playground.run">发送测试</span><span class="loading-dot" aria-hidden="true"></span></button>
+        </div>
+      </form>
+    </section>
+
+    <section class="playground-result" aria-labelledby="playground-result-title">
+      <div class="section-label"><span>SECURITY RESULT</span><h2 id="playground-result-title" data-i18n="playground.resultTitle">安全结果</h2></div>
+      <div id="playground-idle" class="playground-empty">
+        <strong data-i18n="playground.idleTitle">等待测试请求</strong>
+        <p data-i18n="playground.idleBody">结果来自真实 Gateway、Policy、Provider 与 Audit Pipeline。</p>
+      </div>
+      <div id="playground-output" class="playground-output" hidden>
+        <dl class="result-grid">
+          <div><dt data-i18n="playground.requestID">请求 ID</dt><dd id="playground-request-id">—</dd></div>
+          <div><dt data-i18n="playground.finalDecision">最终决策</dt><dd><span id="playground-decision" class="tag neutral">—</span></dd></div>
+          <div><dt data-i18n="playground.providerStatus">Provider 状态</dt><dd><span id="playground-provider-status" class="tag neutral">—</span></dd></div>
+          <div><dt data-i18n="playground.latency">往返延迟</dt><dd id="playground-latency">—</dd></div>
+        </dl>
+        <div class="guard-results">
+          <article>
+            <header><span>INPUT</span><strong data-i18n="playground.inputGuard">Input Guard</strong></header>
+            <dl><div><dt data-i18n="playground.detection">检测结果</dt><dd id="playground-input-detection">—</dd></div><div><dt data-i18n="playground.policy">策略决策</dt><dd id="playground-input-policy">—</dd></div></dl>
+          </article>
+          <article>
+            <header><span>OUTPUT</span><strong data-i18n="playground.outputGuard">Output Guard</strong></header>
+            <dl><div><dt data-i18n="playground.detection">检测结果</dt><dd id="playground-output-detection">—</dd></div><div><dt data-i18n="playground.policy">策略决策</dt><dd id="playground-output-policy">—</dd></div></dl>
+          </article>
+        </div>
+        <section class="model-response">
+          <h3 data-i18n="playground.modelResponse">模型响应</h3>
+          <pre id="playground-response"></pre>
+        </section>
+        <p id="playground-error" class="playground-error" role="alert"></p>
+      </div>
+    </section>
+  </div>
+</section>
+{{end}}

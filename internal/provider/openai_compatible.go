@@ -27,6 +27,7 @@ const (
 	ErrorRateLimited     ErrorCode = "rate_limited"
 	ErrorUpstream        ErrorCode = "upstream_error"
 	ErrorInvalidResponse ErrorCode = "invalid_response"
+	ErrorConfiguration   ErrorCode = "configuration_error"
 )
 
 // Error describes an upstream failure without retaining response bodies,
@@ -62,7 +63,7 @@ func NewOpenAICompatible(baseURL, model, apiKey string, timeout time.Duration) (
 	if timeout <= 0 {
 		return nil, fmt.Errorf("openai-compatible timeout must be greater than zero")
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/v1/chat/completions"
+	parsed.Path = chatCompletionsPath(parsed.Path)
 	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -73,9 +74,17 @@ func NewOpenAICompatible(baseURL, model, apiKey string, timeout time.Duration) (
 }
 
 type upstreamRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
+	Model    string            `json:"model"`
+	Messages []upstreamMessage `json:"messages"`
+	Stream   bool              `json:"stream"`
+}
+
+// upstreamMessage is the OpenAI-compatible wire DTO. Keeping JSON details out
+// of ChatMessage prevents the internal provider model from becoming an HTTP
+// contract while ensuring the upstream field names are exactly lowercase.
+type upstreamMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type upstreamResponse struct {
@@ -84,9 +93,9 @@ type upstreamResponse struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int         `json:"index"`
-		Message      ChatMessage `json:"message"`
-		FinishReason string      `json:"finish_reason"`
+		Index        int             `json:"index"`
+		Message      upstreamMessage `json:"message"`
+		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -96,7 +105,11 @@ type upstreamResponse struct {
 }
 
 func (p *OpenAICompatible) Chat(ctx context.Context, request ChatRequest) (ChatResponse, error) {
-	payload, err := json.Marshal(upstreamRequest{Model: p.model, Messages: request.Messages, Stream: false})
+	messages := make([]upstreamMessage, len(request.Messages))
+	for index, message := range request.Messages {
+		messages[index] = upstreamMessage{Role: message.Role, Content: message.Content}
+	}
+	payload, err := json.Marshal(upstreamRequest{Model: p.model, Messages: messages, Stream: false})
 	if err != nil {
 		return ChatResponse{}, &Error{Code: ErrorInvalidResponse}
 	}
@@ -121,22 +134,53 @@ func (p *OpenAICompatible) Chat(ctx context.Context, request ChatRequest) (ChatR
 		return ChatResponse{}, statusError(response.StatusCode)
 	}
 
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxUpstreamResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxUpstreamResponseBytes+1))
+	if err != nil || int64(len(body)) > maxUpstreamResponseBytes {
+		return ChatResponse{}, &Error{Code: ErrorInvalidResponse}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	var decoded upstreamResponse
 	if err := decoder.Decode(&decoded); err != nil {
+		return ChatResponse{}, &Error{Code: ErrorInvalidResponse}
+	}
+	if err := requireUpstreamEOF(decoder); err != nil {
 		return ChatResponse{}, &Error{Code: ErrorInvalidResponse}
 	}
 	if len(decoded.Choices) == 0 || decoded.Choices[0].Message.Role != "assistant" || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" || strings.TrimSpace(decoded.Model) == "" {
 		return ChatResponse{}, &Error{Code: ErrorInvalidResponse}
 	}
 	result := ChatResponse{
-		ID: decoded.ID, Model: decoded.Model, Message: decoded.Choices[0].Message,
+		ID: decoded.ID, Model: decoded.Model,
+		Message: ChatMessage{
+			Role:    decoded.Choices[0].Message.Role,
+			Content: decoded.Choices[0].Message.Content,
+		},
 		FinishReason: decoded.Choices[0].FinishReason,
 	}
 	if decoded.Usage != nil {
 		result.Usage = Usage{PromptTokens: decoded.Usage.PromptTokens, CompletionTokens: decoded.Usage.CompletionTokens, TotalTokens: decoded.Usage.TotalTokens}
 	}
 	return result, nil
+}
+
+func chatCompletionsPath(path string) string {
+	trimmed := strings.TrimRight(path, "/")
+	switch {
+	case strings.HasSuffix(trimmed, "/v1/chat/completions"):
+		return trimmed
+	case strings.HasSuffix(trimmed, "/v1"):
+		return trimmed + "/chat/completions"
+	default:
+		return trimmed + "/v1/chat/completions"
+	}
+}
+
+func requireUpstreamEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("unexpected trailing provider response data")
+	}
+	return nil
 }
 
 func statusError(status int) error {

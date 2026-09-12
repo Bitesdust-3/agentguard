@@ -37,6 +37,7 @@ func TestDashboardOverviewEventsAndDetails(t *testing.T) {
 		{name: "events decision filter", path: "/dashboard/events?decision=REDACT", want: []string{"data-i18n=\"page.events\">安全事件", "REDACT", "pii.email.v1"}},
 		{name: "events detection filter partial", path: "/dashboard/partials/events?detection_type=PII", want: []string{"events-table", "PII", "pii.email.v1"}},
 		{name: "tools", path: "/dashboard/tools", want: []string{"email.send", "PENDING", "/api/approvals/" + approvalID + "/approve"}},
+		{name: "playground", path: "/dashboard/playground", want: []string{`data-playground`, `data-i18n="page.playground">安全测试台`, `id="playground-form"`, `data-provider-configured="false"`}},
 		{name: "request detail", path: "/dashboard/requests/" + requestID, want: []string{"data-i18n=\"page.request\">请求详情", "pii.email.v1", "INPUT_POLICY"}},
 		{name: "tool detail", path: "/dashboard/tools/" + toolID, want: []string{"data-i18n=\"page.tool\">工具详情", "data-i18n=\"table.approval\">审批", approvalID}},
 	} {
@@ -148,9 +149,33 @@ func TestDashboardLocalizationAndHealthShell(t *testing.T) {
 	if asset.Code != http.StatusOK {
 		t.Fatalf("javascript status = %d", asset.Code)
 	}
-	for _, want := range []string{`localStorage.setItem(storageKey, language)`, `"page.overview": "Overview"`, `fetch("/health"`, `"approval.approve": "Approve"`} {
+	for _, want := range []string{`localStorage.setItem(storageKey, language)`, `"page.overview": "Overview"`, `"page.playground": "Security Playground"`, `fetch("/health"`, `fetch("/v1/chat/completions"`, `/api/audit/events?request_id=`, `"approval.approve": "Approve"`} {
 		if !strings.Contains(asset.Body.String(), want) {
 			t.Fatalf("javascript missing %q", want)
+		}
+	}
+}
+
+func TestPlaygroundShowsSafeProviderRuntimeMetadata(t *testing.T) {
+	_, _, _, _, _, store := testDashboard(t)
+	configured, err := New(store.DB(), "test", Runtime{ProviderMode: "mock", ProviderModel: "mock-model", ProviderConfigured: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	configured.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/playground", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`data-provider-mode="mock"`, `data-provider-model="mock-model"`, `data-provider-configured="true"`, `data-i18n="playground.configured">已配置`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"AGENTGUARD_PROVIDER_API_KEY", "Authorization", "fixture-key"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("playground leaked provider configuration %q", forbidden)
 		}
 	}
 }

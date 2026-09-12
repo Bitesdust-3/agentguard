@@ -11,8 +11,8 @@ provider:
   model: mock-model
   timeout_ms: 30000
   api_key_env: AGENTGUARD_PROVIDER_API_KEY
-  # Required only when type is openai_compatible. The provider appends
-  # /v1/chat/completions to this HTTP(S) service base URL.
+  # Required only when type is openai_compatible. Accepts a service root,
+  # a URL ending in /v1, or the complete /v1/chat/completions endpoint.
   base_url: ""
 
 detection:

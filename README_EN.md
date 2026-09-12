@@ -21,6 +21,9 @@ LLM applications need controls around both model traffic and agent actions. Agen
 - **Audit Trail** — fail-closed SQLite persistence correlates requests, detections, policy decisions, Tool Calls, and approvals.
 - **Security Benchmark** — reproducible evaluation using the same runtime Detector and Policy logic.
 - **OpenAI-Compatible Provider** — one configurable upstream provider alongside the deterministic local Mock Provider.
+- **Security Playground** — displays Input / Output Guard, Policy, and Provider-call results from the real Gateway and Audit pipeline without duplicating security rules in the browser.
+
+The OpenAI-compatible path has been verified end to end against OpenRouter: a normal request completed `PASS → Provider → Output PASS`, PII was `REDACT`ed before Provider access, and Prompt Injection was `BLOCK`ed before Provider invocation. This confirms the tested path, not comprehensive coverage of every model, attack, or deployment.
 
 The Mock Provider and Tool Executor perform no real AI inference or external action.
 
@@ -28,23 +31,28 @@ The Mock Provider and Tool Executor perform no real AI inference or external act
 
 ```mermaid
 flowchart LR
-    Client --> Gateway
+    Client[Client / AI Application] --> Gateway[AgentGuard Gateway]
     Gateway --> InputGuard[Input Detection]
     InputGuard --> InputPolicy[Input Policy]
     InputPolicy --> Provider[Mock or OpenAI-Compatible Provider]
     Provider --> OutputGuard[Output Detection]
     OutputGuard --> OutputPolicy[Output Policy]
-    OutputPolicy --> Client
+    OutputPolicy --> Response[Response]
     Gateway --> Audit[(SQLite Audit)]
     InputPolicy --> Audit
     OutputPolicy --> Audit
+    Response --> Audit
+```
 
-    ToolCall[Tool Call] --> ToolPolicy[Tool Policy]
-    ToolPolicy --> Approval
-    Approval --> MockExecutor[Mock Executor]
-    ToolPolicy --> Audit
-    Approval --> Audit
-    MockExecutor --> Audit
+Tool security path:
+
+```text
+Agent / LLM
+→ Tool Policy
+→ PASS / APPROVAL / BLOCK
+→ Human Approval (when required)
+→ Mock Tool Executor
+→ Audit
 ```
 
 Detector components report what was found. Policy components decide what to do. Critical Audit failures stop subsequent Provider or Tool execution.
@@ -74,6 +82,8 @@ curl --noproxy '*' --fail -X POST http://127.0.0.1:18080/v1/chat/completions \
 
 Open `http://<SERVER_IP>:18080/dashboard` from another machine on the same trusted network. Mock mode is the default and requires neither network access nor an API key. The copied local configuration and runtime SQLite data are ignored by Git.
 
+Security Playground is available at `http://<SERVER_IP>:18080/dashboard/playground`. If the OpenAI-compatible Provider is selected without its environment credential, the Dashboard remains available and requests return a sanitized Provider configuration error.
+
 ### Persistent systemd service
 
 Build the binary as shown above, then generate the systemd unit from [`deploy/systemd/agentguard.service.example`](deploy/systemd/agentguard.service.example), replacing its two placeholders with values for the target host:
@@ -90,6 +100,8 @@ curl --noproxy '*' --fail http://127.0.0.1:18080/health
 ```
 
 After local changes, [`scripts/restart-local.sh`](scripts/restart-local.sh) rebuilds the binary, restarts the installed service, displays status, and checks health. It does not install the service or edit system configuration.
+
+In OpenAI-compatible mode, systemd can load the credential from `/etc/agentguard/provider.env`. This file is outside the Git repository and should be created by an administrator with access restricted to the service account. It only needs to define `AGENTGUARD_PROVIDER_API_KEY`. Restart AgentGuard after updating it; never place the credential in the unit, YAML, or command-line arguments.
 
 ### Docker Compose
 
@@ -112,6 +124,7 @@ docker compose down
 - Overview: `/dashboard`
 - Security events: `/dashboard/events`
 - Tool Calls and approvals: `/dashboard/tools`
+- Security Playground: `/dashboard/playground`
 - Latest persisted Benchmark: `/dashboard/benchmark`
 
 The Dashboard is a high-density security operations console over existing audit and benchmark data. Its Chinese/English switch defaults to Chinese and persists the selected language in the browser. Responsive tables, correlated request and Tool timelines, safe summaries, approval controls, and percentage-based Benchmark metrics improve investigation without changing security decision values or policy behavior.
@@ -125,6 +138,24 @@ The screenshots below use only fictional demo data and the persisted Curated Ben
 Security posture at a glance: request decisions, security flow, recent Audit events, and Tool Policy status.
 
 ![AgentGuard Overview](docs/images/dashboard-overview.png)
+
+### Security Playground: real Provider PASS
+
+A normal request passes the Input and Output Guards and returns a real model response through the OpenAI-compatible Provider.
+
+![AgentGuard Security Playground PASS](docs/images/playground-pass.png)
+
+### Security Playground: PII REDACT
+
+A fictional email is replaced before Provider access, producing `REDACT / CALLED` without persisting the original value.
+
+![AgentGuard Security Playground PII REDACT](docs/images/playground-pii-redact.png)
+
+### Security Playground: Prompt Injection BLOCK
+
+An explicit instruction-override request is stopped before Provider access and displayed as `BLOCK / NOT CALLED`.
+
+![AgentGuard Security Playground Prompt Injection BLOCK](docs/images/playground-prompt-block.png)
 
 ### Security Events
 
@@ -150,12 +181,6 @@ A PII REDACT request keeps the detection, rule, policy decision, and Audit trail
 
 ![AgentGuard PII Redact Request Detail](docs/images/request-detail.png)
 
-### Prompt Injection Block
-
-A Prompt Injection request is stopped before Provider access and recorded as a BLOCK decision.
-
-![AgentGuard Prompt Injection Block](docs/images/prompt-injection-block.png)
-
 ## Demo
 
 See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool workflows.
@@ -164,7 +189,7 @@ See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool wor
 
 [▶ Watch the v1.0 historical full demo](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
 
-The current interface is shown in the GIF and screenshots above. The linked full walkthrough is retained as the historical v1.0 demo.
+The GIF uses the latest Dashboard, Security Playground, and Tool Approval interface. The linked full walkthrough is retained as the historical v1.0 demo.
 
 ## Security Benchmark
 
@@ -235,7 +260,7 @@ Change only the local configuration and inject the credential through the enviro
 ```yaml
 provider:
   type: openai_compatible
-  base_url: https://api.example.invalid
+  base_url: https://api.example.invalid/v1
   model: your-fixed-upstream-model
   timeout_ms: 30000
   api_key_env: AGENTGUARD_PROVIDER_API_KEY
@@ -246,7 +271,17 @@ export AGENTGUARD_PROVIDER_API_KEY='your-api-key'
 ./bin/agentguard -config configs/config.local.yaml
 ```
 
-Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard appends `/v1/chat/completions` to the configured service base URL, always uses the configured upstream model, and returns sanitized upstream errors.
+Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard always uses the configured upstream model and returns sanitized upstream errors.
+
+`base_url` accepts the common OpenAI-compatible forms below without duplicating `/v1`:
+
+```text
+https://api.example.invalid
+https://api.example.invalid/v1
+https://api.example.invalid/v1/chat/completions
+```
+
+The verified OpenRouter example uses `base_url: https://openrouter.ai/api` and `model: openrouter/free`. Upstream availability and model routing remain controlled by the provider; the API key must still be injected through `AGENTGUARD_PROVIDER_API_KEY`.
 
 ## API
 
@@ -271,6 +306,7 @@ Tool input fields are `tool_name`, `arguments`, `target_type`, `external`, `dest
 - `GET /dashboard`
 - `GET /dashboard/events`
 - `GET /dashboard/tools`
+- `GET /dashboard/playground`
 - `GET /dashboard/benchmark`
 
 These are local-admin endpoints in v1.0 and have no authentication layer.

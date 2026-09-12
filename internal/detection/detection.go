@@ -5,8 +5,9 @@ package detection
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
+
+	"github.com/bitesdust/agentguard/internal/identifier"
 )
 
 type DetectionType string
@@ -105,8 +106,6 @@ func NewResult(input Input, detectionType DetectionType, ruleID string, score, c
 	}
 }
 
-var sequence atomic.Uint64
-
 func nextID() string {
-	return fmt.Sprintf("detection_%d", sequence.Add(1))
+	return identifier.New("detection")
 }

@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=<USER>
 WorkingDirectory=<AGENTGUARD_DIR>
+EnvironmentFile=-/etc/agentguard/provider.env
 ExecStart=<AGENTGUARD_DIR>/bin/agentguard -config <AGENTGUARD_DIR>/configs/config.local.yaml
 Restart=on-failure
 RestartSec=3

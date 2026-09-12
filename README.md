@@ -34,28 +34,36 @@ LLM 应用不仅需要保护模型输入和输出，也需要约束 Agent 对外
 - **安全审计 Audit**：以 Request ID 关联 Detection、Policy、Tool、Approval 和 Audit Event，不持久化完整 Prompt、Provider Response 或敏感原值。
 - **Security Benchmark**：使用相同 Detector 与 Policy 运行可复现评测，保留真实误报和漏报。
 - **OpenAI-Compatible Provider**：支持一个可配置的 OpenAI-Compatible 上游 Provider，同时保留确定性的 Mock Provider。
+- **Security Playground**：通过真实 Gateway 与 Audit Pipeline 展示 Input / Output Guard、Policy 和 Provider 调用结果，不在浏览器中复制安全规则。
+
+OpenAI-Compatible 链路已使用 OpenRouter 完成真实第三方模型 API 端到端验证：Normal 请求完成 `PASS → Provider → Output PASS`，PII 在进入 Provider 前完成 `REDACT`，Prompt Injection 在 Provider 调用前被 `BLOCK`。验证结果仅说明当前受测链路可用，不代表对所有模型、攻击方式或部署环境的全面覆盖。
 
 ## 系统架构
 
 ```mermaid
 flowchart LR
-    Client --> Gateway
+    Client[Client / AI Application] --> Gateway[AgentGuard Gateway]
     Gateway --> InputGuard[Input Detection]
     InputGuard --> InputPolicy[Input Policy]
     InputPolicy --> Provider[Mock or OpenAI-Compatible Provider]
     Provider --> OutputGuard[Output Detection]
     OutputGuard --> OutputPolicy[Output Policy]
-    OutputPolicy --> Client
+    OutputPolicy --> Response[Response]
     Gateway --> Audit[(SQLite Audit)]
     InputPolicy --> Audit
     OutputPolicy --> Audit
+    Response --> Audit
+```
 
-    ToolCall[Tool Call] --> ToolPolicy[Tool Policy]
-    ToolPolicy --> Approval[Human Approval]
-    Approval --> MockExecutor[Mock Executor]
-    ToolPolicy --> Audit
-    Approval --> Audit
-    MockExecutor --> Audit
+Tool 安全链路：
+
+```text
+Agent / LLM
+→ Tool Policy
+→ PASS / APPROVAL / BLOCK
+→ Human Approval（需要时）
+→ Mock Tool Executor
+→ Audit
 ```
 
 完整 Chat Pipeline：
@@ -87,6 +95,7 @@ Dashboard 是基于现有 Audit 与 Benchmark 数据的高信息密度安全控�
 - 安全总览：`/dashboard`
 - 安全事件：`/dashboard/events`
 - Tool 调用与审批：`/dashboard/tools`
+- 安全测试台：`/dashboard/playground`
 - 安全评测：`/dashboard/benchmark`
 
 Dashboard 仅改变展示方式，不定义核心实体、策略或状态枚举。
@@ -100,6 +109,24 @@ Dashboard 仅改变展示方式，不定义核心实体、策略或状态枚举�
 集中展示请求决策、安全处理链路、最近 Audit Event 与 Tool Policy 状态。
 
 ![AgentGuard 安全总览](docs/images/dashboard-overview.png)
+
+### Security Playground：真实 Provider PASS
+
+正常请求经过 Input / Output Guard，并通过 OpenAI-Compatible Provider 获得真实模型响应。
+
+![AgentGuard Security Playground PASS](docs/images/playground-pass.png)
+
+### Security Playground：PII REDACT
+
+虚构邮箱在进入 Provider 前被替换为安全占位符，最终状态为 `REDACT / CALLED`。
+
+![AgentGuard Security Playground PII REDACT](docs/images/playground-pii-redact.png)
+
+### Security Playground：Prompt Injection BLOCK
+
+明确的指令覆盖请求在 Provider 调用前被阻断，页面显示 `BLOCK / NOT CALLED`。
+
+![AgentGuard Security Playground Prompt Injection BLOCK](docs/images/playground-prompt-block.png)
 
 ### 安全事件
 
@@ -125,12 +152,6 @@ Dashboard 仅改变展示方式，不定义核心实体、策略或状态枚举�
 
 ![AgentGuard Request 详情](docs/images/request-detail.png)
 
-### Prompt Injection 阻断
-
-高风险 Prompt Injection 在访问 Provider 前被阻断并记录为 `BLOCK`。
-
-![AgentGuard Prompt Injection 阻断](docs/images/prompt-injection-block.png)
-
 ## Demo
 
 推荐按以下顺序验证完整安全链路：
@@ -143,7 +164,7 @@ Dashboard 仅改变展示方式，不定义核心实体、策略或状态枚举�
 6. `file.delete` → `BLOCK`
 7. 查看 Audit Dashboard 与 Benchmark Dashboard
 
-当前界面以本页 GIF 和截图为准；Release 中的完整视频保留为 v1.0 历史演示。
+当前 GIF 使用最新 Dashboard、Security Playground 和 Tool Approval 界面；Release 中的完整视频保留为 v1.0 历史演示。
 
 ## Security Benchmark
 
@@ -217,6 +238,8 @@ AGENTGUARD_DEMO_URL=http://127.0.0.1:19090 ./scripts/demo.sh
 
 Mock 模式不需要网络或 API Key。`configs/config.local.yaml`、`bin/` 与 `data/` 均已被 Git 忽略。
 
+Security Playground 位于 `http://<SERVER_IP>:18080/dashboard/playground`。当选择 OpenAI-Compatible Provider 但环境变量未设置时，Dashboard 仍可打开，请求会返回经过清理的 Provider 配置错误。
+
 ### Docker Compose
 
 要求：Docker 与 Compose v2。
@@ -254,6 +277,8 @@ curl --noproxy '*' --fail http://127.0.0.1:18080/health
 
 修改本地代码后，[`scripts/restart-local.sh`](scripts/restart-local.sh) 可重新构建二进制、重启已安装的服务、显示状态并检查 Health。该脚本不会安装服务或编辑系统配置。
 
+OpenAI-Compatible 模式可由 systemd 从 `/etc/agentguard/provider.env` 读取凭据。该文件不属于 Git 仓库，应由管理员创建并限制为仅服务账户可读，内容只需设置 `AGENTGUARD_PROVIDER_API_KEY`。修改后重启 AgentGuard；不要将凭据写入 unit、YAML 或命令行参数。
+
 ## 配置
 
 复制 [`configs/config.example.yaml`](configs/config.example.yaml) 到已忽略的 `configs/config.local.yaml` 后再进行本地修改。公开示例监听 `0.0.0.0:18080`，Docker 使用独立的 [`configs/config.docker.yaml`](configs/config.docker.yaml)。
@@ -276,7 +301,7 @@ provider:
 ```yaml
 provider:
   type: openai_compatible
-  base_url: https://api.example.invalid
+  base_url: https://api.example.invalid/v1
   model: your-fixed-upstream-model
   timeout_ms: 30000
   api_key_env: AGENTGUARD_PROVIDER_API_KEY
@@ -287,7 +312,17 @@ export AGENTGUARD_PROVIDER_API_KEY='your-api-key'
 ./bin/agentguard -config configs/config.local.yaml
 ```
 
-不要将真实 Key 写入 YAML、`.env.example`、源代码或 Git。AgentGuard 会将 `/v1/chat/completions` 追加到配置的服务 Base URL，固定使用配置的上游模型，并返回经过清理的上游错误。
+不要将真实 Key 写入 YAML、`.env.example`、源代码或 Git。AgentGuard 固定使用配置的上游模型，并返回经过清理的上游错误。
+
+`base_url` 支持常见的三种 OpenAI-Compatible 写法，且不会重复追加 `/v1`：
+
+```text
+https://api.example.invalid
+https://api.example.invalid/v1
+https://api.example.invalid/v1/chat/completions
+```
+
+经过真实端到端验证的 OpenRouter 示例为 `base_url: https://openrouter.ai/api`、`model: openrouter/free`。模型可用性和路由结果由上游服务决定；API Key 仍必须通过 `AGENTGUARD_PROVIDER_API_KEY` 注入。
 
 ## API
 
@@ -312,6 +347,7 @@ Tool 输入字段为 `tool_name`、`arguments`、`target_type`、`external`、`d
 - `GET /dashboard`
 - `GET /dashboard/events`
 - `GET /dashboard/tools`
+- `GET /dashboard/playground`
 - `GET /dashboard/benchmark`
 
 这些接口在 v1.0 中属于本地管理端点，没有 Authentication 层。

@@ -12,12 +12,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/audit"
 	"github.com/bitesdust/agentguard/internal/config"
 	"github.com/bitesdust/agentguard/internal/detection"
+	"github.com/bitesdust/agentguard/internal/identifier"
 	"github.com/bitesdust/agentguard/internal/policy"
 )
 
@@ -82,8 +82,6 @@ type Service struct {
 	mu       sync.Mutex
 }
 
-var sequence atomic.Uint64
-
 // Executor invokes one controlled demo tool after the service has persisted
 // its authorization and execution claim.
 type Executor interface {
@@ -100,7 +98,7 @@ func newService(db *sql.DB, cfg config.ToolsConfig, auditRecorder audit.Transact
 	return &Service{db: db, cfg: cfg, audit: auditRecorder, executor: executor}
 }
 
-func next(prefix string) string { return fmt.Sprintf("%s_%d", prefix, sequence.Add(1)) }
+func next(prefix string) string { return identifier.New(prefix) }
 
 func (s *Service) Submit(ctx context.Context, request Request) (Call, *Approval, error) {
 	if !safeLabel(request.ToolName) || !safeLabel(request.TargetType) {

@@ -9,6 +9,17 @@ type Provider interface {
 	Chat(context.Context, ChatRequest) (ChatResponse, error)
 }
 
+// Unconfigured keeps the HTTP service and local Dashboard available when an
+// OpenAI-compatible provider is selected without its credential. Requests
+// fail with a sanitized configuration error until the environment is fixed.
+type Unconfigured struct{}
+
+func NewUnconfigured() Unconfigured { return Unconfigured{} }
+
+func (Unconfigured) Chat(context.Context, ChatRequest) (ChatResponse, error) {
+	return ChatResponse{}, &Error{Code: ErrorConfiguration}
+}
+
 // ChatRequest is independent of the OpenAI HTTP request DTO.
 type ChatRequest struct {
 	RequestID string
@@ -37,3 +48,5 @@ type Usage struct {
 	CompletionTokens int
 	TotalTokens      int
 }
+
+var _ Provider = Unconfigured{}

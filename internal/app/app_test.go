@@ -1,9 +1,13 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,6 +39,38 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestApplicationKeepsDashboardAvailableWithoutProviderCredential(t *testing.T) {
+	cfg := config.Default()
+	cfg.Storage.SQLitePath = filepath.Join(t.TempDir(), "unconfigured.db")
+	cfg.Provider = config.ProviderConfig{
+		Type: "openai_compatible", BaseURL: "https://example.invalid", Model: "fixture-model",
+		TimeoutMS: 1000, APIKeyEnv: "AGENTGUARD_PROVIDER_API_KEY",
+	}
+	t.Setenv(cfg.Provider.APIKeyEnv, "")
+	application, err := New(context.Background(), cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = application.store.Close() })
+
+	dashboard := httptest.NewRecorder()
+	application.Server.Handler.ServeHTTP(dashboard, httptest.NewRequest(http.MethodGet, "/dashboard/playground", nil))
+	if dashboard.Code != http.StatusOK || !strings.Contains(dashboard.Body.String(), `data-provider-configured="false"`) {
+		t.Fatalf("dashboard status=%d body=%s", dashboard.Code, dashboard.Body.String())
+	}
+
+	chat := httptest.NewRecorder()
+	application.Server.Handler.ServeHTTP(chat, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"fixture","messages":[{"role":"user","content":"normal question"}]}`)))
+	if chat.Code != http.StatusServiceUnavailable || !strings.Contains(chat.Body.String(), `"code":"provider_configuration_error"`) {
+		t.Fatalf("chat status=%d body=%s", chat.Code, chat.Body.String())
+	}
+	for _, forbidden := range []string{cfg.Provider.APIKeyEnv, "Authorization", "example.invalid"} {
+		if strings.Contains(chat.Body.String(), forbidden) {
+			t.Fatalf("configuration response leaked %q", forbidden)
+		}
+	}
+}
+
 func TestProviderComposition(t *testing.T) {
 	mock, err := newProvider(config.Default().Provider)
 	if err != nil {
@@ -46,14 +82,22 @@ func TestProviderComposition(t *testing.T) {
 
 	cfg := config.ProviderConfig{Type: "openai_compatible", BaseURL: "https://example.invalid", Model: "fixture-model", TimeoutMS: 1000, APIKeyEnv: "AGENTGUARD_PROVIDER_API_KEY"}
 	t.Setenv(cfg.APIKeyEnv, "")
-	if _, err := newProvider(cfg); err == nil || !strings.Contains(err.Error(), cfg.APIKeyEnv) {
-		t.Fatalf("missing-key error = %v", err)
+	if unconfigured, err := newProvider(cfg); err != nil {
+		t.Fatal(err)
+	} else if _, ok := unconfigured.(provider.Unconfigured); !ok {
+		t.Fatalf("missing-key provider type = %T", unconfigured)
+	}
+	if providerConfigured(cfg) {
+		t.Fatal("providerConfigured() = true without credential")
 	}
 	t.Setenv(cfg.APIKeyEnv, "fixture-key")
 	if realProvider, err := newProvider(cfg); err != nil {
 		t.Fatal(err)
 	} else if _, ok := realProvider.(*provider.OpenAICompatible); !ok {
 		t.Fatalf("real provider type = %T", realProvider)
+	}
+	if !providerConfigured(cfg) {
+		t.Fatal("providerConfigured() = false with credential")
 	}
 }
 

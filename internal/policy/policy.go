@@ -5,10 +5,10 @@ package policy
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/bitesdust/agentguard/internal/detection"
+	"github.com/bitesdust/agentguard/internal/identifier"
 )
 
 type Action string
@@ -174,8 +174,6 @@ func matchingDetectorRules(results []detection.DetectionResult) []string {
 	return ids
 }
 
-var decisionSequence atomic.Uint64
-
 func nextID() string {
-	return fmt.Sprintf("policy_%d", decisionSequence.Add(1))
+	return identifier.New("policy")
 }

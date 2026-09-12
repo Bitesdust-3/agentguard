@@ -123,6 +123,7 @@ func TestChatCompletionsMapsTypedProviderFailuresSafely(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
+		{code: provider.ErrorConfiguration, wantStatus: http.StatusServiceUnavailable, wantCode: "provider_configuration_error"},
 		{code: provider.ErrorTimeout, wantStatus: http.StatusGatewayTimeout, wantCode: "provider_timeout"},
 		{code: provider.ErrorRateLimited, wantStatus: http.StatusServiceUnavailable, wantCode: "provider_rate_limited"},
 		{code: provider.ErrorUnauthorized, wantStatus: http.StatusBadGateway, wantCode: "provider_auth_error"},

@@ -209,6 +209,8 @@ func providerErrorResponse(err error) (int, string, string) {
 		return http.StatusBadGateway, "provider_error", "chat provider failed"
 	}
 	switch providerError.Code {
+	case provider.ErrorConfiguration:
+		return http.StatusServiceUnavailable, "provider_configuration_error", "chat provider is not configured"
 	case provider.ErrorTimeout:
 		return http.StatusGatewayTimeout, "provider_timeout", "chat provider timed out"
 	case provider.ErrorRateLimited:

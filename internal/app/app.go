@@ -58,7 +58,11 @@ func New(ctx context.Context, cfg config.Config, version string, logger *slog.Lo
 	}
 	auditStore := audit.New(store.DB())
 	toolHandler := tools.NewHandler(tools.NewService(store.DB(), cfg.Tools, auditStore))
-	dashboard, err := web.New(store.DB(), version, cfg.Provider.Type)
+	dashboard, err := web.New(store.DB(), version, web.Runtime{
+		ProviderMode:       cfg.Provider.Type,
+		ProviderModel:      cfg.Provider.Model,
+		ProviderConfigured: providerConfigured(cfg.Provider),
+	})
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("initialize dashboard: %w", err)
@@ -128,7 +132,7 @@ func newProvider(cfg config.ProviderConfig) (provider.Provider, error) {
 	case "openai_compatible":
 		apiKey := strings.TrimSpace(os.Getenv(cfg.APIKeyEnv))
 		if apiKey == "" {
-			return nil, fmt.Errorf("provider API key environment variable %q is not set", cfg.APIKeyEnv)
+			return provider.NewUnconfigured(), nil
 		}
 		result, err := provider.NewOpenAICompatible(cfg.BaseURL, cfg.Model, apiKey, time.Duration(cfg.TimeoutMS)*time.Millisecond)
 		if err != nil {
@@ -138,6 +142,10 @@ func newProvider(cfg config.ProviderConfig) (provider.Provider, error) {
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}
+}
+
+func providerConfigured(cfg config.ProviderConfig) bool {
+	return cfg.Type == "mock" || strings.TrimSpace(os.Getenv(cfg.APIKeyEnv)) != ""
 }
 
 // ListenAndServe starts the HTTP server.

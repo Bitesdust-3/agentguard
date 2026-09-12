@@ -1,28 +1,41 @@
 # AgentGuard
 
-AgentGuard is an **AI Agent Security Gateway** (AI Agent 安全控制网关) and automated security evaluation platform. It places an explainable, auditable safety pipeline in front of OpenAI-compatible text chat and selected agent Tool Calls.
+中文 | [English](README_EN.md)
 
-> **Status: v1.0.0**
+**轻量级 AI Agent 安全控制网关与自动化安全评测平台。**
 
-AgentGuard v1.0.0 is a runnable security-engineering prototype with documented deployment limitations.
+AgentGuard 位于 AI Agent / LLM 应用与模型、Tool 之间，通过统一 Pipeline 提供输入输出检测、策略决策、敏感信息保护、Tool Policy、Human Approval、安全审计与 Benchmark。项目用于降低 Prompt Injection（提示词注入）、敏感信息泄露和高风险工具调用带来的风险。
 
-## Why AgentGuard
+> 当前版本：**v1.0.0** · 可运行的安全工程原型
 
-LLM applications need controls around both model traffic and agent actions. AgentGuard separates risk detection from policy decisions, minimizes sensitive audit data, and remains usable without an external model or API key.
+核心链路：`Input Guard → Policy → Provider → Output Guard`，以及 `Tool Policy → Human Approval → Mock Executor`。技术栈：Go 1.27、SQLite、Go Template、HTMX、Docker。
 
-## Core capabilities
+![AgentGuard 安全工作流演示](docs/images/agentguard-demo.gif)
 
-- **Input Guard** — PII / Secret Detection and direct or basic indirect Prompt Injection Detection.
-- **Policy Enforcement** — independent input and output `PASS`, `REDACT`, and `BLOCK` decisions.
-- **Output Guard** — applies the same detection and policy model before Provider output reaches the client.
-- **Tool Policy and Human Approval** — configuration-driven `PASS`, `APPROVAL`, and `BLOCK` decisions with a mock-only executor.
-- **Audit Trail** — fail-closed SQLite persistence correlates requests, detections, policy decisions, Tool Calls, and approvals.
-- **Security Benchmark** — reproducible evaluation using the same runtime Detector and Policy logic.
-- **OpenAI-Compatible Provider** — one configurable upstream provider alongside the deterministic local Mock Provider.
+[▶ 查看 v1.0 历史完整演示](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
 
-The Mock Provider and Tool Executor perform no real AI inference or external action.
+## 项目简介
 
-## Architecture
+AgentGuard 将风险检测、策略决策和执行动作分离，以确定、可解释的规则处理 Chat 与 Tool 请求。默认 Mock Provider 和 Mock Tool Executor 无需外部 API Key，不执行真实 AI 推理或外部操作，便于本地验证完整安全链路。
+
+关键 Audit 持久化采用 fail-closed：如果关键安全记录写入失败，当前 Provider 或 Tool 调用不会继续执行。
+
+## 为什么需要 AgentGuard
+
+LLM 应用不仅需要保护模型输入和输出，也需要约束 Agent 对外部工具的调用。AgentGuard 在应用与模型、Tool 之间建立统一控制点：Detector 负责发现风险，Policy 负责决定动作，Redactor 执行脱敏，Audit 记录最小化安全摘要。
+
+## 核心能力
+
+- **输入 / 输出安全检测**：PII、Secret、直接和基础间接 Prompt Injection 检测。
+- **策略决策**：对输入和输出独立执行 `PASS`、`REDACT`、`BLOCK`。
+- **敏感信息保护**：在进入 Provider 前或返回客户端前完成脱敏或阻断。
+- **Tool 安全控制**：Tool Policy 对工具调用执行 `PASS`、`APPROVAL`、`BLOCK`。
+- **Human Approval**：敏感外部操作需人工批准，拒绝或未批准时不得执行。
+- **安全审计 Audit**：以 Request ID 关联 Detection、Policy、Tool、Approval 和 Audit Event，不持久化完整 Prompt、Provider Response 或敏感原值。
+- **Security Benchmark**：使用相同 Detector 与 Policy 运行可复现评测，保留真实误报和漏报。
+- **OpenAI-Compatible Provider**：支持一个可配置的 OpenAI-Compatible 上游 Provider，同时保留确定性的 Mock Provider。
+
+## 系统架构
 
 ```mermaid
 flowchart LR
@@ -38,20 +51,138 @@ flowchart LR
     OutputPolicy --> Audit
 
     ToolCall[Tool Call] --> ToolPolicy[Tool Policy]
-    ToolPolicy --> Approval
+    ToolPolicy --> Approval[Human Approval]
     Approval --> MockExecutor[Mock Executor]
     ToolPolicy --> Audit
     Approval --> Audit
     MockExecutor --> Audit
 ```
 
-Detector components report what was found. Policy components decide what to do. Critical Audit failures stop subsequent Provider or Tool execution.
+完整 Chat Pipeline：
 
-## Quick start
+```text
+HTTP 校验
+→ Input Detection
+→ Input Policy
+→ Input REDACT / BLOCK
+→ Provider
+→ Output Detection
+→ Output Policy
+→ Output REDACT / BLOCK
+→ Response
+```
 
-### Local Mock mode
+## Dashboard
 
-Requirements: Go 1.27 and a C compiler for `go-sqlite3`.
+Dashboard 是基于现有 Audit 与 Benchmark 数据的高信息密度安全控制台，支持中文 / English 切换并在浏览器中保持语言选择。它提供：
+
+- 安全态势总览与最近 Audit Event
+- Security Events 筛选与安全摘要
+- Tool Call、Approval 和执行状态追踪
+- Request / Tool 关联时间线
+- Benchmark 指标、分类表现与 Known Failures
+
+主要页面：
+
+- 安全总览：`/dashboard`
+- 安全事件：`/dashboard/events`
+- Tool 调用与审批：`/dashboard/tools`
+- 安全评测：`/dashboard/benchmark`
+
+Dashboard 仅改变展示方式，不定义核心实体、策略或状态枚举。
+
+## 界面预览
+
+截图仅使用虚构 Demo 数据和持久化的 Curated Benchmark v1 结果。
+
+### 安全总览
+
+集中展示请求决策、安全处理链路、最近 Audit Event 与 Tool Policy 状态。
+
+![AgentGuard 安全总览](docs/images/dashboard-overview.png)
+
+### 安全事件
+
+展示策略结果与安全摘要，不暴露原始请求内容。
+
+![AgentGuard 安全事件](docs/images/security-events.png)
+
+### Tool 审批
+
+展示 Tool Policy 的 `PASS`、`APPROVAL`、`BLOCK` 路径及执行状态。
+
+![AgentGuard Tool 审批](docs/images/tool-approval.png)
+
+### Benchmark
+
+展示 Curated Benchmark v1 的核心指标、分类表现、复现信息和已知失败样本。
+
+![AgentGuard Benchmark](docs/images/benchmark.png)
+
+### Request 详情
+
+关联 PII 检测、规则、`REDACT` 决策与 Audit 时间线，不保存原始敏感值。
+
+![AgentGuard Request 详情](docs/images/request-detail.png)
+
+### Prompt Injection 阻断
+
+高风险 Prompt Injection 在访问 Provider 前被阻断并记录为 `BLOCK`。
+
+![AgentGuard Prompt Injection 阻断](docs/images/prompt-injection-block.png)
+
+## Demo
+
+推荐按以下顺序验证完整安全链路：
+
+1. Normal Chat → `PASS`
+2. PII Input → `REDACT`
+3. Prompt Injection → Provider 调用前 `BLOCK`
+4. `weather.read` → `PASS` → Mock `EXECUTED`
+5. `email.send` → `APPROVAL` → Human Approve → Mock `EXECUTED`
+6. `file.delete` → `BLOCK`
+7. 查看 Audit Dashboard 与 Benchmark Dashboard
+
+当前界面以本页 GIF 和截图为准；Release 中的完整视频保留为 v1.0 历史演示。
+
+## Security Benchmark
+
+Curated Benchmark v1 包含 **266 条人工整理的虚构样本**，覆盖 7 类安全场景：Normal、PII、Secret、直接 Prompt Injection、间接 Prompt Injection、Tool Misuse 和 Approval Bypass。数据集中包含 hard negative 与边界样本。
+
+复现参数：
+
+- Seed：`42`
+- Dataset Hash：`31e5fa5c5758fe207f0028ea7b0de2f5f553222236aa1ff34ad28f1cad16caa0`
+
+当前默认 Policy 结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| 样本数 | 266 |
+| 类别数 | 7 |
+| Accuracy | 91.1% |
+| Precision | 95.0% |
+| Recall | 85.4% |
+| FPR | 4.0% |
+| FNR | 14.6% |
+| Decision Accuracy | 92.9% |
+| TP / FP / TN / FN | 76 / 4 / 97 / 13 |
+| Docker 验证运行额外延迟 | Average 23.408 µs；P50 25.328 µs；P95 56.565 µs |
+
+延迟取决于运行主机，每次评测都会重新测量。Benchmark 保留真实误报和漏报，未针对测试集专门调参以追求满分。Known Failures 包括：部分改写后的直接攻击与 email / knowledge-base 间接通道可能漏报，部分防御性间接注入讨论可能误报，当前 Tool 规则尚未约束所有目标类型。
+
+运行评测：
+
+```bash
+go run ./cmd/benchmark \
+  -config configs/config.example.yaml \
+  -dataset tests/benchmark/benchmark-v1.yaml \
+  -seed 42
+```
+
+## 快速开始
+
+要求：Go 1.27，以及供 `go-sqlite3` 使用的 C 编译器。
 
 ```bash
 git clone https://github.com/Bitesdust-3/agentguard.git
@@ -61,7 +192,7 @@ go build -o bin/agentguard ./cmd/agentguard
 ./bin/agentguard -config configs/config.local.yaml
 ```
 
-In another terminal:
+在另一个终端检查服务并发送 Mock Chat 请求：
 
 ```bash
 curl --noproxy '*' --fail http://127.0.0.1:18080/health
@@ -70,11 +201,45 @@ curl --noproxy '*' --fail -X POST http://127.0.0.1:18080/v1/chat/completions \
   -d '{"model":"mock-model","messages":[{"role":"user","content":"Hello AgentGuard"}]}'
 ```
 
-Open `http://<SERVER_IP>:18080/dashboard` from another machine on the same trusted network. Mock mode is the default and requires neither network access nor an API key. The copied local configuration and runtime SQLite data are ignored by Git.
+同一可信网络中的其他设备可访问 `http://<SERVER_IP>:18080/dashboard`。v1.0 未实现 Authentication / RBAC，不应直接暴露到不可信网络。
 
-### Persistent systemd service
+运行使用虚构数据的端到端 Demo：
 
-Build the binary as shown above, then generate the systemd unit from [`deploy/systemd/agentguard.service.example`](deploy/systemd/agentguard.service.example), replacing its two placeholders with values for the target host:
+```bash
+./scripts/demo.sh
+```
+
+如需更换端口：
+
+```bash
+AGENTGUARD_DEMO_URL=http://127.0.0.1:19090 ./scripts/demo.sh
+```
+
+Mock 模式不需要网络或 API Key。`configs/config.local.yaml`、`bin/` 与 `data/` 均已被 Git 忽略。
+
+### Docker Compose
+
+要求：Docker 与 Compose v2。
+
+```bash
+docker compose up --build
+```
+
+默认访问 `http://127.0.0.1:8080/dashboard`。Compose 只运行 AgentGuard，并将 SQLite 数据保存在 `agentguard-data` named volume。可通过 `AGENTGUARD_PORT` 修改主机端口：
+
+```bash
+AGENTGUARD_PORT=18080 docker compose up --build
+```
+
+停止服务但保留数据：
+
+```bash
+docker compose down
+```
+
+## systemd 常驻运行
+
+完成本地构建后，使用公开模板 [`deploy/systemd/agentguard.service.example`](deploy/systemd/agentguard.service.example) 生成 systemd unit：
 
 ```bash
 sed -e "s|<USER>|$(id -un)|g" \
@@ -87,133 +252,11 @@ systemctl status agentguard --no-pager
 curl --noproxy '*' --fail http://127.0.0.1:18080/health
 ```
 
-After local changes, [`scripts/restart-local.sh`](scripts/restart-local.sh) rebuilds the binary, restarts the installed service, displays status, and checks health. It does not install the service or edit system configuration.
+修改本地代码后，[`scripts/restart-local.sh`](scripts/restart-local.sh) 可重新构建二进制、重启已安装的服务、显示状态并检查 Health。该脚本不会安装服务或编辑系统配置。
 
-### Docker Compose
+## 配置
 
-Requirements: Docker with Compose v2.
-
-```bash
-docker compose up --build
-```
-
-Open `http://127.0.0.1:8080/dashboard`. The Compose stack contains only AgentGuard and keeps SQLite data in the `agentguard-data` named volume. To use another host port, set `AGENTGUARD_PORT`, for example `AGENTGUARD_PORT=18080 docker compose up --build`.
-
-Stop the service without deleting persisted data:
-
-```bash
-docker compose down
-```
-
-## Dashboard
-
-- Overview: `/dashboard`
-- Security events: `/dashboard/events`
-- Tool Calls and approvals: `/dashboard/tools`
-- Latest persisted Benchmark: `/dashboard/benchmark`
-
-The Dashboard is a high-density security operations console over existing audit and benchmark data. Its Chinese/English switch defaults to Chinese and persists the selected language in the browser. Responsive tables, correlated request and Tool timelines, safe summaries, approval controls, and percentage-based Benchmark metrics improve investigation without changing security decision values or policy behavior.
-
-## Dashboard Preview
-
-The screenshots below use only fictional demo data and the persisted Curated Benchmark v1 result.
-
-### Overview
-
-Security posture at a glance: request decisions, security flow, recent Audit events, and Tool Policy status.
-
-![AgentGuard Overview](docs/images/dashboard-overview.png)
-
-### Security Events
-
-The Audit event stream shows policy outcomes and safe summaries without exposing raw request content.
-
-![AgentGuard Security Events](docs/images/security-events.png)
-
-### Tool & Approval
-
-Tool Policy makes PASS, APPROVAL, and BLOCK paths immediately visible alongside execution state.
-
-![AgentGuard Tool and Approval](docs/images/tool-approval.png)
-
-### Benchmark
-
-Curated Benchmark v1 presents security metrics, category performance, reproducibility metadata, and visible limitations.
-
-![AgentGuard Benchmark](docs/images/benchmark.png)
-
-### Request Detail
-
-A PII REDACT request keeps the detection, rule, policy decision, and Audit trail correlated without storing the original value.
-
-![AgentGuard PII Redact Request Detail](docs/images/request-detail.png)
-
-### Prompt Injection Block
-
-A Prompt Injection request is stopped before Provider access and recorded as a BLOCK decision.
-
-![AgentGuard Prompt Injection Block](docs/images/prompt-injection-block.png)
-
-## Demo
-
-See AgentGuard enforce REDACT, BLOCK and human approval across chat and tool workflows.
-
-![AgentGuard security workflow demo](docs/images/agentguard-demo.gif)
-
-[▶ Watch the v1.0 historical full demo](https://github.com/Bitesdust-3/agentguard/releases/tag/demo-v1.0.0)
-
-The current interface is shown in the GIF and screenshots above. The linked full walkthrough is retained as the historical v1.0 demo.
-
-## Security Benchmark
-
-Run the manually reviewed Curated Benchmark v1 with its fixed reproducibility seed:
-
-```bash
-go run ./cmd/benchmark \
-  -config configs/config.example.yaml \
-  -dataset tests/benchmark/benchmark-v1.yaml \
-  -seed 42
-```
-
-The dataset contains **266 curated fictional samples** across seven evenly represented categories: normal, PII, Secret, direct Prompt Injection, indirect Prompt Injection, Tool misuse, and approval bypass. It includes hard negatives and boundary cases. Reproducibility uses **Seed 42** and canonical Dataset Hash `31e5fa5c5758fe207f0028ea7b0de2f5f553222236aa1ff34ad28f1cad16caa0`.
-
-Current default-policy result:
-
-| Metric | Result |
-| --- | ---: |
-| Samples | 266 |
-| Accuracy | 91.1% |
-| Precision | 95.0% |
-| Recall | 85.4% |
-| False Positive Rate | 4.0% |
-| False Negative Rate | 14.6% |
-| Decision Accuracy | 92.9% |
-| Confusion Matrix | TP 76 · FP 4 · TN 97 · FN 13 |
-| Added Latency (Docker verification run) | Average 23.408 µs; P50 25.328 µs; P95 56.565 µs |
-
-Latency depends on the host and is measured on each run. The result is not presented as state of the art. Known misses and false positives remain visible: some paraphrased direct attacks and email/knowledge-base indirect channels can be missed, some defensive indirect-injection text can be flagged, and current Tool rules do not constrain every target type.
-
-## Demo flow
-
-With AgentGuard running in Mock mode, run the fictional end-to-end demo:
-
-```bash
-./scripts/demo.sh
-```
-
-1. Normal Chat → `PASS`
-2. PII Input → `REDACT`
-3. Prompt Injection → `BLOCK` before Provider access
-4. `weather.read` → `PASS` → mock `EXECUTED`
-5. `email.send` → `APPROVAL` → Human Approve → mock `EXECUTED`
-6. `file.delete` → `BLOCK`
-7. Review the Audit Dashboard and Benchmark Dashboard
-
-For a different port, use `AGENTGUARD_DEMO_URL=http://127.0.0.1:19090 ./scripts/demo.sh`. The script never selects the real provider and all payloads are artificial.
-
-## Configuration
-
-Copy [`configs/config.example.yaml`](configs/config.example.yaml) to the ignored `configs/config.local.yaml` before making local changes. The public example listens on `0.0.0.0:18080`; expose it only on a trusted network because v1.0 has no authentication. Docker uses [`configs/config.docker.yaml`](configs/config.docker.yaml) and stores SQLite data under `/app/data`.
+复制 [`configs/config.example.yaml`](configs/config.example.yaml) 到已忽略的 `configs/config.local.yaml` 后再进行本地修改。公开示例监听 `0.0.0.0:18080`，Docker 使用独立的 [`configs/config.docker.yaml`](configs/config.docker.yaml)。
 
 ### Mock Provider
 
@@ -226,9 +269,9 @@ provider:
   base_url: ""
 ```
 
-### OpenAI-compatible Provider
+### OpenAI-Compatible Provider
 
-Change only the local configuration and inject the credential through the environment:
+只修改本地配置，并通过环境变量注入凭据：
 
 ```yaml
 provider:
@@ -244,16 +287,16 @@ export AGENTGUARD_PROVIDER_API_KEY='your-api-key'
 ./bin/agentguard -config configs/config.local.yaml
 ```
 
-Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard appends `/v1/chat/completions` to the configured service base URL, always uses the configured upstream model, and returns sanitized upstream errors.
+不要将真实 Key 写入 YAML、`.env.example`、源代码或 Git。AgentGuard 会将 `/v1/chat/completions` 追加到配置的服务 Base URL，固定使用配置的上游模型，并返回经过清理的上游错误。
 
 ## API
 
-### Gateway and health
+### Gateway 与 Health
 
 - `GET /health`
-- `POST /v1/chat/completions` — minimal non-streaming text subset with `model` and `messages` (`system`, `user`, `assistant`)
+- `POST /v1/chat/completions`：最小非流式文本子集，支持 `model` 和 `messages`（`system`、`user`、`assistant`）
 
-### Tool and approval
+### Tool 与 Approval
 
 - `POST /api/tool-calls`
 - `GET /api/tool-calls/{id}`
@@ -261,84 +304,84 @@ Never put a real key in YAML, `.env.example`, source code, or Git. AgentGuard ap
 - `POST /api/approvals/{id}/approve`
 - `POST /api/approvals/{id}/reject`
 
-Tool input fields are `tool_name`, `arguments`, `target_type`, `external`, `destructive`, and `sensitive`. Clients cannot submit their own security decision.
+Tool 输入字段为 `tool_name`、`arguments`、`target_type`、`external`、`destructive` 和 `sensitive`。客户端不能提交自己的安全决策。
 
-### Audit and Dashboard
+### Audit 与 Dashboard
 
-- `GET /api/audit/events` — optional filters: `event_type`, `decision`, `detection_type`, `request_id`, `tool_call_id`, and `limit` (1–100)
+- `GET /api/audit/events`：可选筛选参数为 `event_type`、`decision`、`detection_type`、`request_id`、`tool_call_id` 和 `limit`（1–100）
 - `GET /dashboard`
 - `GET /dashboard/events`
 - `GET /dashboard/tools`
 - `GET /dashboard/benchmark`
 
-These are local-admin endpoints in v1.0 and have no authentication layer.
+这些接口在 v1.0 中属于本地管理端点，没有 Authentication 层。
 
-## Security model
+## 安全模型
 
-- Detection and policy decisions are separate, deterministic components.
-- Scores and confidence use the `[0,1]` range; stable rule IDs make decisions explainable.
-- Input policy runs before Provider access; output policy runs before data reaches the client.
-- Tool policy and required Audit persistence run before mock execution.
-- Secret/PII evidence, prompts, Provider responses, and Tool arguments are not persisted in full.
-- Critical Audit persistence is fail-closed. It must never turn a blocked operation into an allowed one.
-- Unknown YAML fields, unsupported providers/actions, and invalid thresholds fail explicitly.
+- Detection 与 Policy Decision 是独立、确定性的组件。
+- Score 和 Confidence 统一使用 `[0,1]`；稳定 Rule ID 用于解释决策。
+- Input Policy 在 Provider 前执行；Output Policy 在数据返回客户端前执行。
+- Tool Policy 和必需 Audit 持久化在 Mock Executor 前执行。
+- Secret / PII Evidence、Prompt、Provider Response 与 Tool Arguments 不会被完整持久化。
+- 关键 Audit 持久化采用 fail-closed，失败不会将已阻断操作变成允许操作。
+- 未知 YAML 字段、不支持的 Provider / Action 和非法 Threshold 会明确失败。
 
-## Technology stack
+## 技术栈
 
-- Go 1.27, `net/http`, Go Templates, and HTMX
-- SQLite with `go-sqlite3`
-- YAML configuration
-- Go test tooling and race detector
-- Docker and Docker Compose
+- Go 1.27、`net/http`、Go Template、HTMX
+- SQLite 与 `go-sqlite3`
+- YAML 配置
+- Go Test 与 Race Detector
+- Docker 与 Docker Compose
 - GitHub Actions
 
-## Project structure
+## 项目结构
 
 ```text
 .
-├── cmd/                 # AgentGuard and Benchmark entry points
-├── configs/             # Local and Docker-safe configuration examples
-├── deploy/systemd/      # Generic persistent-service unit template
-├── docs/                # Frozen v1 architecture contract
-├── internal/            # App, gateway, detection, policy, provider, tools, audit, benchmark, web
-├── scripts/             # Reproducible demo and local service restart helper
-├── tests/benchmark/     # Development and curated fictional datasets
+├── cmd/                 # AgentGuard 与 Benchmark 入口
+├── configs/             # 本地和 Docker 配置示例
+├── deploy/systemd/      # 通用 systemd unit 模板
+├── docs/                # 冻结的 v1 架构契约与展示素材
+├── internal/            # App、Gateway、Detection、Policy、Provider、Tool、Audit、Benchmark、Web
+├── scripts/             # 可复现 Demo 与本地服务重启脚本
+├── tests/benchmark/     # 开发数据集与人工整理的虚构数据集
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
 ```
 
-## Known limitations
+## 已知限制
 
-- Prompt Injection defense is a rule-and-feature-scoring MVP and cannot cover every natural-language variant.
-- Basic indirect Prompt Injection coverage is limited; AgentGuard does not fetch or isolate external documents.
-- The Tool Executor is mock-only; it performs no real Tool action.
-- There is no authentication or RBAC, so the service should not be exposed directly to an untrusted network.
-- The real provider supports only non-streaming text Chat Completions. There is no streaming, multimodal input, Tool/Function Calling forwarding, multi-provider routing, automatic retry, or fallback.
-- SQLite is a single-node store.
-- A local transaction cannot roll back a real external side effect if a future real Tool adapter succeeds before a final Audit write fails.
+- 当前 Detector 主要采用规则与特征评分，Prompt Injection 仍存在误报和漏报。
+- 基础间接 Prompt Injection 覆盖有限；AgentGuard 不抓取或隔离外部文档，尚未提供 RAG 安全能力。
+- Tool Executor 仅为 Mock，不执行真实 Tool 操作；尚未提供 MCP 与真实 Tool Adapter。
+- 当前仅支持单个 OpenAI-Compatible Provider，不支持 Streaming、多模态、Tool / Function Calling 转发、多 Provider 路由、自动 Retry 或 Fallback。
+- v1.0 没有多租户、Authentication、IAM 或 RBAC，不应直接暴露到不可信网络。
+- SQLite 适合当前单节点原型规模。
+- 如果未来真实 Tool Adapter 在最终 Audit 写入前已产生外部副作用，本地事务无法回滚该外部动作。
 
-## Future work
+## Future Work
 
-- Stronger Prompt Injection detection and more complete indirect-injection defenses
-- MCP and other agent-protocol support
-- Real Tool adapters
-- Authentication and RBAC
-- Streaming
-- Multiple Provider support
-- Idempotency and an Outbox pattern for real external side effects
+- 加强 Prompt Injection 与间接注入检测能力
+- MCP 与其他 Agent Protocol 安全支持
+- 真实 Tool Adapter
+- Authentication、IAM 与 RBAC
+- Streaming 与多模态支持
+- 多 Provider 路由
+- 面向真实外部副作用的 Idempotency 与 Outbox Pattern
 
-These items are outside the frozen v1.0 feature scope.
+以上内容不属于冻结的 v1.0 功能范围。
 
-## Development
+## 开发与验证
 
 ```bash
 go test -count=1 ./...
 go vet ./...
 ```
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the concise contribution checklist.
+贡献流程参见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ## License
 
-Distributed under the [MIT License](LICENSE).
+本项目使用 [MIT License](LICENSE)。
